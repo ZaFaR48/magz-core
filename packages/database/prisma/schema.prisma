@@ -1,0 +1,174 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  OWNER
+  ADMIN
+  USER
+}
+
+enum ModuleKey {
+  AI_ASSISTANT
+  CRM
+  ERP
+  MARKETPLACE_ANALYZER
+  INTERNET_DIAGNOSTICS
+  CLOUD_TOOLS
+  BUSINESS_AUTOMATION
+}
+
+enum ModuleStatus {
+  ACTIVE
+  DISABLED
+  COMING_SOON
+}
+
+enum AuditAction {
+  AUTH_REGISTER
+  AUTH_LOGIN
+  AUTH_LOGOUT
+  MODULE_ENABLED
+  MODULE_DISABLED
+  AI_CONVERSATION_CREATED
+  SETTINGS_UPDATED
+  PROJECT_CREATED
+  USER_ROLE_UPDATED
+}
+
+model User {
+  id           String               @id @default(cuid())
+  email        String               @unique
+  name         String?
+  passwordHash String
+  role         Role                 @default(USER)
+  memberships  OrganizationMember[]
+  conversations AIConversation[]
+  auditLogs    AuditLog[]          @relation("AuditActor")
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+
+  @@index([role])
+}
+
+model Organization {
+  id            String               @id @default(cuid())
+  name          String
+  slug          String               @unique
+  domain        String?
+  members       OrganizationMember[]
+  projects      Project[]
+  modules       OrganizationModule[]
+  conversations AIConversation[]
+  auditLogs     AuditLog[]
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+}
+
+model OrganizationMember {
+  id             String       @id @default(cuid())
+  organizationId String
+  userId         String
+  role           Role         @default(USER)
+  isDefault      Boolean      @default(false)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([organizationId, userId])
+  @@index([userId])
+  @@index([organizationId, role])
+}
+
+model Project {
+  id             String           @id @default(cuid())
+  organizationId String
+  name           String
+  key            String
+  status         String           @default("active")
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  conversations  AIConversation[]
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@unique([organizationId, key])
+  @@index([organizationId, status])
+}
+
+model ModuleDefinition {
+  id                  String               @id @default(cuid())
+  key                 ModuleKey            @unique
+  name                String
+  description         String
+  category            String
+  path                String
+  isolatedPath        String
+  defaultEnabled      Boolean              @default(false)
+  requiredRole        Role                 @default(USER)
+  status              ModuleStatus         @default(COMING_SOON)
+  organizationModules OrganizationModule[]
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+}
+
+model OrganizationModule {
+  id                 String           @id @default(cuid())
+  organizationId     String
+  moduleDefinitionId String
+  status             ModuleStatus     @default(ACTIVE)
+  config             Json?
+  enabledAt          DateTime?
+  disabledAt         DateTime?
+  organization       Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  moduleDefinition   ModuleDefinition @relation(fields: [moduleDefinitionId], references: [id], onDelete: Cascade)
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  @@unique([organizationId, moduleDefinitionId])
+  @@index([organizationId, status])
+}
+
+model AIConversation {
+  id             String       @id @default(cuid())
+  organizationId String
+  projectId      String?
+  userId         String
+  title          String
+  provider       String       @default("magz")
+  model          String?
+  messages       Json
+  status         String       @default("open")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  project        Project?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([organizationId, updatedAt])
+  @@index([userId, updatedAt])
+}
+
+model AuditLog {
+  id             String       @id @default(cuid())
+  organizationId String
+  actorId        String?
+  action         AuditAction
+  entityType     String
+  entityId       String?
+  metadata       Json?
+  ipAddress      String?
+  userAgent      String?
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  actor          User?        @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+  createdAt      DateTime     @default(now())
+
+  @@index([organizationId, createdAt])
+  @@index([actorId, createdAt])
+  @@index([action])
+}

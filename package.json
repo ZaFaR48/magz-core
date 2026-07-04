@@ -1,0 +1,40 @@
+{
+  "name": "magz-core",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MAGZ Core - the digital brain and business operating system for Asia.",
+  "license": "UNLICENSED",
+  "packageManager": "npm@11.13.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w @magz/web",
+    "build": "npm run db:generate && npm run build -w @magz/web",
+    "start": "npm run start -w @magz/web",
+    "lint": "npm run lint -w @magz/web",
+    "typecheck": "npm run typecheck -w @magz/web",
+    "format": "prettier --write .",
+    "db:generate": "prisma generate --schema packages/database/prisma/schema.prisma",
+    "db:migrate": "prisma migrate dev --schema packages/database/prisma/schema.prisma",
+    "db:deploy": "prisma migrate deploy --schema packages/database/prisma/schema.prisma",
+    "db:push": "prisma db push --schema packages/database/prisma/schema.prisma",
+    "db:seed": "tsx packages/database/prisma/seed.ts",
+    "db:studio": "prisma studio --schema packages/database/prisma/schema.prisma"
+  },
+  "overrides": {
+    "next@16.2.10": {
+      "postcss": "8.5.16"
+    }
+  },
+  "devDependencies": {
+    "prettier": "3.9.4",
+    "prisma": "6.19.3",
+    "tsx": "4.23.0",
+    "typescript": "6.0.3"
+  },
+  "dependencies": {
+    "@prisma/client": "6.19.3"
+  }
+}

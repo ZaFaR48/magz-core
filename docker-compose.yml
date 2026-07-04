@@ -1,0 +1,53 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: magz-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: magz
+      POSTGRES_USER: magz
+      POSTGRES_PASSWORD: magz_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U magz -d magz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  migrate:
+    build:
+      context: .
+      target: builder
+    container_name: magz-migrate
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://magz:magz_password@postgres:5432/magz?schema=public
+      AUTH_SECRET: ${AUTH_SECRET:-replace-with-at-least-32-random-bytes}
+      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
+    command: npm run db:deploy
+
+  web:
+    build:
+      context: .
+      target: runner
+    container_name: magz-web
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgresql://magz:magz_password@postgres:5432/magz?schema=public
+      AUTH_SECRET: ${AUTH_SECRET:-replace-with-at-least-32-random-bytes}
+      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
+    ports:
+      - "3000:3000"
+
+volumes:
+  postgres_data:
