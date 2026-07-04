@@ -1,4 +1,4 @@
-import { moduleDefinitions } from "@magz/core";
+import { aiModelRouteDefinitions, aiProviderDefinitions, moduleDefinitions } from "@magz/core";
 import { PrismaClient, Role } from "@prisma/client";
 import bcrypt from "bcryptjs";
 
@@ -13,6 +13,96 @@ function slugify(value: string) {
 }
 
 async function main() {
+  const providerIds = new Map<string, string>();
+
+  for (const providerDefinition of aiProviderDefinitions) {
+    const isConfigured =
+      providerDefinition.kind === "mock" ||
+      Boolean(providerDefinition.apiKeyEnv ? process.env[providerDefinition.apiKeyEnv] : undefined) ||
+      Boolean(providerDefinition.baseUrlEnv ? process.env[providerDefinition.baseUrlEnv] : undefined);
+
+    const provider = await prisma.aIProvider.upsert({
+      where: { key: providerDefinition.key },
+      update: {
+        name: providerDefinition.name,
+        kind: providerDefinition.kind,
+        baseUrl: providerDefinition.baseUrlEnv
+          ? process.env[providerDefinition.baseUrlEnv] ?? providerDefinition.defaultBaseUrl
+          : providerDefinition.defaultBaseUrl,
+        apiKeyEnv: providerDefinition.apiKeyEnv,
+        isEnabled: isConfigured,
+        metadata: {
+          managedBy: "magz-core-seed"
+        }
+      },
+      create: {
+        key: providerDefinition.key,
+        name: providerDefinition.name,
+        kind: providerDefinition.kind,
+        baseUrl: providerDefinition.baseUrlEnv
+          ? process.env[providerDefinition.baseUrlEnv] ?? providerDefinition.defaultBaseUrl
+          : providerDefinition.defaultBaseUrl,
+        apiKeyEnv: providerDefinition.apiKeyEnv,
+        isEnabled: isConfigured,
+        metadata: {
+          managedBy: "magz-core-seed"
+        }
+      }
+    });
+
+    providerIds.set(providerDefinition.key, provider.id);
+  }
+
+  for (const routeDefinition of aiModelRouteDefinitions) {
+    const providerId = providerIds.get(routeDefinition.providerKey);
+
+    if (!providerId) {
+      continue;
+    }
+
+    const provider = aiProviderDefinitions.find(
+      (providerDefinition) => providerDefinition.key === routeDefinition.providerKey
+    );
+    const model = routeDefinition.modelEnv
+      ? process.env[routeDefinition.modelEnv] ?? routeDefinition.defaultModel
+      : routeDefinition.defaultModel;
+
+    await prisma.aIModelRoute.upsert({
+      where: { routeKey: routeDefinition.routeKey },
+      update: {
+        providerId,
+        label: routeDefinition.label,
+        model,
+        description: routeDefinition.description,
+        priority: routeDefinition.priority,
+        isDefault: routeDefinition.isDefault,
+        isEnabled:
+          routeDefinition.providerKey === "mock" ||
+          Boolean(provider?.apiKeyEnv ? process.env[provider.apiKeyEnv] : undefined) ||
+          Boolean(provider?.baseUrlEnv ? process.env[provider.baseUrlEnv] : undefined),
+        settings: {
+          managedBy: "magz-core-seed"
+        }
+      },
+      create: {
+        routeKey: routeDefinition.routeKey,
+        providerId,
+        label: routeDefinition.label,
+        model,
+        description: routeDefinition.description,
+        priority: routeDefinition.priority,
+        isDefault: routeDefinition.isDefault,
+        isEnabled:
+          routeDefinition.providerKey === "mock" ||
+          Boolean(provider?.apiKeyEnv ? process.env[provider.apiKeyEnv] : undefined) ||
+          Boolean(provider?.baseUrlEnv ? process.env[provider.baseUrlEnv] : undefined),
+        settings: {
+          managedBy: "magz-core-seed"
+        }
+      }
+    });
+  }
+
   for (const moduleDefinition of moduleDefinitions) {
     await prisma.moduleDefinition.upsert({
       where: { key: moduleDefinition.key },

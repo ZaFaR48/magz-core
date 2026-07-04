@@ -1,6 +1,6 @@
 import { PageHeader } from "@/components/ui/page-header";
+import { listAssistantConversations } from "@/lib/ai/service";
 import { requireCurrentSession } from "@/lib/auth/session";
-import { prisma } from "@/lib/db/prisma";
 import { AssistantWorkspace } from "@/modules/ai-assistant";
 
 export const metadata = {
@@ -9,18 +9,16 @@ export const metadata = {
 
 export default async function AssistantPage() {
   const session = await requireCurrentSession();
-  const initialConversationCount = await prisma.aIConversation.count({
-    where: { organizationId: session.organizationId }
-  });
+  const initialState = await listAssistantConversations(session);
 
   return (
     <div className="space-y-8">
       <PageHeader
         eyebrow="AI"
         title="AI Assistant"
-        description="A governed workspace for organization-aware assistant conversations and future AI tool calls."
+        description="A governed workspace for provider-agnostic assistant conversations, route selection, and future AI tool calls."
       />
-      <AssistantWorkspace initialConversationCount={initialConversationCount} />
+      <AssistantWorkspace initialState={initialState} />
     </div>
   );
 }

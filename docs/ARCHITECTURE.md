@@ -28,6 +28,7 @@ The central registry in `packages/core/src/modules.ts` defines module keys, name
 - Organizations and projects
 - Module definitions and organization module state
 - AI conversations
+- AI messages, providers, model routes, and usage logs
 - Audit logs
 
 ## Access Control
@@ -40,7 +41,7 @@ RBAC is enforced at three layers:
 
 ## Next Expansion Points
 
-- Add AI provider adapters under `apps/web/modules/ai-assistant/server`.
+- Add AI provider adapters under `apps/web/lib/ai/providers`.
 - Add CRM models and APIs without modifying ERP or diagnostics modules.
 - Move long-running jobs into a separate worker app under `apps/worker`.
 - Add per-module permissions after the first organization role model stabilizes.

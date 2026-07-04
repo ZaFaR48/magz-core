@@ -36,9 +36,17 @@ enum AuditAction {
   MODULE_ENABLED
   MODULE_DISABLED
   AI_CONVERSATION_CREATED
+  ASSISTANT_CHAT
   SETTINGS_UPDATED
   PROJECT_CREATED
   USER_ROLE_UPDATED
+}
+
+enum AIMessageRole {
+  SYSTEM
+  USER
+  ASSISTANT
+  TOOL
 }
 
 model User {
@@ -49,6 +57,8 @@ model User {
   role         Role                 @default(USER)
   memberships  OrganizationMember[]
   conversations AIConversation[]
+  aiMessages   AIMessage[]
+  aiUsageLogs  AIUsageLog[]
   auditLogs    AuditLog[]          @relation("AuditActor")
   createdAt    DateTime            @default(now())
   updatedAt    DateTime            @updatedAt
@@ -65,6 +75,9 @@ model Organization {
   projects      Project[]
   modules       OrganizationModule[]
   conversations AIConversation[]
+  aiMessages    AIMessage[]
+  aiModelRoutes AIModelRoute[]
+  aiUsageLogs   AIUsageLog[]
   auditLogs     AuditLog[]
   createdAt     DateTime             @default(now())
   updatedAt     DateTime             @updatedAt
@@ -139,6 +152,8 @@ model AIConversation {
   organizationId String
   projectId      String?
   userId         String
+  routeId        String?
+  providerId     String?
   title          String
   provider       String       @default("magz")
   model          String?
@@ -147,11 +162,122 @@ model AIConversation {
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   project        Project?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
   user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  route          AIModelRoute? @relation(fields: [routeId], references: [id], onDelete: SetNull)
+  providerRef    AIProvider?   @relation(fields: [providerId], references: [id], onDelete: SetNull)
+  aiMessages     AIMessage[]
+  usageLogs      AIUsageLog[]
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
   @@index([organizationId, updatedAt])
   @@index([userId, updatedAt])
+  @@index([routeId])
+  @@index([providerId])
+}
+
+model AIProvider {
+  id            String           @id @default(cuid())
+  key           String           @unique
+  name          String
+  kind          String
+  baseUrl       String?
+  apiKeyEnv     String?
+  isEnabled     Boolean          @default(true)
+  metadata      Json?
+  modelRoutes   AIModelRoute[]
+  conversations AIConversation[]
+  messages      AIMessage[]
+  usageLogs     AIUsageLog[]
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  @@index([kind, isEnabled])
+}
+
+model AIModelRoute {
+  id             String           @id @default(cuid())
+  routeKey       String           @unique
+  organizationId String?
+  providerId     String
+  label          String
+  model          String
+  description    String
+  priority       Int              @default(100)
+  isDefault      Boolean          @default(false)
+  isEnabled      Boolean          @default(true)
+  settings       Json?
+  organization   Organization?    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  provider       AIProvider       @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  conversations  AIConversation[]
+  messages       AIMessage[]
+  usageLogs      AIUsageLog[]
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@index([organizationId, isEnabled])
+  @@index([providerId])
+  @@index([isDefault, priority])
+}
+
+model AIMessage {
+  id              String          @id @default(cuid())
+  conversationId  String
+  organizationId  String
+  userId          String?
+  routeId         String?
+  providerId      String?
+  role            AIMessageRole
+  content         String
+  tokenCount      Int             @default(0)
+  costEstimateUsd Decimal?        @db.Decimal(12, 6)
+  metadata        Json?
+  conversation    AIConversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  organization    Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user            User?           @relation(fields: [userId], references: [id], onDelete: SetNull)
+  route           AIModelRoute?   @relation(fields: [routeId], references: [id], onDelete: SetNull)
+  provider        AIProvider?     @relation(fields: [providerId], references: [id], onDelete: SetNull)
+  usageLogs       AIUsageLog[]
+  createdAt       DateTime        @default(now())
+
+  @@index([conversationId, createdAt])
+  @@index([organizationId, createdAt])
+  @@index([userId, createdAt])
+  @@index([routeId])
+  @@index([providerId])
+}
+
+model AIUsageLog {
+  id              String          @id @default(cuid())
+  organizationId  String
+  userId          String
+  conversationId  String
+  messageId       String?
+  routeId         String?
+  providerId      String?
+  providerKey     String
+  model           String
+  promptTokens    Int             @default(0)
+  completionTokens Int            @default(0)
+  totalTokens     Int             @default(0)
+  costEstimateUsd Decimal?        @db.Decimal(12, 6)
+  latencyMs       Int?
+  status          String          @default("ok")
+  errorCode       String?
+  metadata        Json?
+  organization    Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversation    AIConversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  message         AIMessage?      @relation(fields: [messageId], references: [id], onDelete: SetNull)
+  route           AIModelRoute?   @relation(fields: [routeId], references: [id], onDelete: SetNull)
+  provider        AIProvider?     @relation(fields: [providerId], references: [id], onDelete: SetNull)
+  createdAt       DateTime        @default(now())
+
+  @@index([organizationId, createdAt])
+  @@index([userId, createdAt])
+  @@index([conversationId, createdAt])
+  @@index([routeId])
+  @@index([providerId])
+  @@index([status])
 }
 
 model AuditLog {

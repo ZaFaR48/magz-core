@@ -80,6 +80,7 @@ The web app runs on `http://localhost:3000`, PostgreSQL on `localhost:5432`.
 ## Core Routes
 
 - `/` landing page
+- `/pricing`
 - `/login` and `/register`
 - `/dashboard`
 - `/assistant`
@@ -98,7 +99,7 @@ MAGZ uses three organization roles:
 - `ADMIN`: operational administration and restricted module control
 - `USER`: standard module access
 
-The role model is centralized in `packages/core/src/rbac.ts` and enforced in middleware, server layouts, and API routes.
+The role model is centralized in `packages/core/src/rbac.ts` and enforced in the Next.js proxy, server layouts, and API routes.
 
 ## Database
 
@@ -110,7 +111,11 @@ The Prisma schema includes:
 - Projects
 - Module definitions
 - Organization modules
+- AI providers
+- AI model routes
 - AI conversations
+- AI messages
+- AI usage logs
 - Audit logs
 
 Run Prisma Studio:
@@ -119,13 +124,35 @@ Run Prisma Studio:
 npm run db:studio
 ```
 
+## AI Router
+
+MAGZ Assistant uses a provider-agnostic server-side AI router. The mock provider is enabled by default, so local development works without external API keys.
+
+Environment variables:
+
+- `AI_DEFAULT_ROUTE_KEY`: preferred route key, defaults to `mock:magz-dev`
+- `OPENAI_COMPATIBLE_API_KEY`: server-only key for OpenAI or compatible gateways
+- `OPENAI_COMPATIBLE_BASE_URL`: defaults to `https://api.openai.com/v1`
+- `OPENAI_COMPATIBLE_MODEL`: defaults to `gpt-4o-mini`
+- `LOCAL_LLM_BASE_URL`: local OpenAI-compatible endpoint, for example Ollama or vLLM
+- `LOCAL_LLM_MODEL`: defaults to `llama3.1`
+
+Assistant API routes:
+
+- `POST /api/assistant/chat`
+- `GET /api/assistant/conversations`
+- `GET /api/assistant/conversations/:id`
+- `DELETE /api/assistant/conversations/:id`
+
+Provider keys are never exposed to the frontend. See [docs/ai-router.md](./docs/ai-router.md).
+
 ## Security Notes
 
 - Set a strong `AUTH_SECRET` of at least 32 random bytes in every non-local environment.
 - Cookies are HTTP-only and use `secure` in production.
 - Passwords are hashed with bcrypt at cost 12.
 - Private routes are guarded by the Next.js proxy and admin pages plus mutation APIs enforce role checks server-side.
-- Audit logs record registration, login, logout, module changes, settings updates, and AI conversation creation.
+- Audit logs record registration, login, logout, module changes, settings updates, AI conversation creation, and assistant chat usage.
 - Do not use the seed password in staging or production.
 - Put production PostgreSQL behind private networking and use TLS at the edge.
 

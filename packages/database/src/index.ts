@@ -1,5 +1,6 @@
 export {
   AuditAction,
+  AIMessageRole,
   ModuleKey,
   ModuleStatus,
   PrismaClient,
