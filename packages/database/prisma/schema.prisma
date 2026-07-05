@@ -40,6 +40,10 @@ enum AuditAction {
   SETTINGS_UPDATED
   PROJECT_CREATED
   USER_ROLE_UPDATED
+  CRM_ENTITY_CREATED
+  CRM_ENTITY_UPDATED
+  CRM_ENTITY_DELETED
+  CRM_LEAD_SCORED
 }
 
 enum AIMessageRole {
@@ -47,6 +51,44 @@ enum AIMessageRole {
   USER
   ASSISTANT
   TOOL
+}
+
+enum CRMLeadStatus {
+  NEW
+  CONTACTED
+  QUALIFIED
+  DISQUALIFIED
+  CONVERTED
+}
+
+enum CRMDealStatus {
+  OPEN
+  WON
+  LOST
+  ARCHIVED
+}
+
+enum CRMDealActivityType {
+  NOTE
+  CALL
+  EMAIL
+  MEETING
+  STAGE_CHANGE
+  TASK
+}
+
+enum CRMTaskStatus {
+  TODO
+  IN_PROGRESS
+  DONE
+  CANCELED
+}
+
+enum CRMTaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
 }
 
 model User {
@@ -59,6 +101,14 @@ model User {
   conversations AIConversation[]
   aiMessages   AIMessage[]
   aiUsageLogs  AIUsageLog[]
+  assignedCompanies Company[]       @relation("CompanyAssignee")
+  assignedContacts Contact[]        @relation("ContactAssignee")
+  assignedLeads    Lead[]           @relation("LeadAssignee")
+  assignedDeals    Deal[]           @relation("DealAssignee")
+  assignedTasks    Task[]           @relation("TaskAssignee")
+  createdTasks     Task[]           @relation("TaskCreator")
+  dealActivities   DealActivity[]   @relation("DealActivityActor")
+  notes            Note[]           @relation("NoteAuthor")
   auditLogs    AuditLog[]          @relation("AuditActor")
   createdAt    DateTime            @default(now())
   updatedAt    DateTime            @updatedAt
@@ -78,6 +128,15 @@ model Organization {
   aiMessages    AIMessage[]
   aiModelRoutes AIModelRoute[]
   aiUsageLogs   AIUsageLog[]
+  companies     Company[]
+  contacts      Contact[]
+  leads         Lead[]
+  pipelines     Pipeline[]
+  pipelineStages PipelineStage[]
+  deals         Deal[]
+  dealActivities DealActivity[]
+  tasks         Task[]
+  notes         Note[]
   auditLogs     AuditLog[]
   createdAt     DateTime             @default(now())
   updatedAt     DateTime             @updatedAt
@@ -278,6 +337,254 @@ model AIUsageLog {
   @@index([routeId])
   @@index([providerId])
   @@index([status])
+}
+
+model Company {
+  id             String       @id @default(cuid())
+  organizationId String
+  assignedUserId String?
+  name           String
+  domain         String?
+  website        String?
+  industry       String?
+  phone          String?
+  region         String?
+  description    String?
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  assignedUser   User?        @relation("CompanyAssignee", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  contacts       Contact[]
+  leads          Lead[]
+  deals          Deal[]
+  tasks          Task[]
+  notes          Note[]
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  deletedAt      DateTime?
+
+  @@index([organizationId, deletedAt])
+  @@index([organizationId, name])
+  @@index([assignedUserId])
+}
+
+model Contact {
+  id             String       @id @default(cuid())
+  organizationId String
+  companyId      String?
+  assignedUserId String?
+  firstName      String
+  lastName       String?
+  email          String?
+  phone          String?
+  title          String?
+  status         String       @default("active")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  company        Company?     @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  assignedUser   User?        @relation("ContactAssignee", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  leads          Lead[]
+  deals          Deal[]
+  tasks          Task[]
+  notes          Note[]
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  deletedAt      DateTime?
+
+  @@index([organizationId, deletedAt])
+  @@index([organizationId, email])
+  @@index([companyId])
+  @@index([assignedUserId])
+}
+
+model Lead {
+  id             String        @id @default(cuid())
+  organizationId String
+  companyId      String?
+  contactId      String?
+  assignedUserId String?
+  title          String
+  firstName      String?
+  lastName       String?
+  email          String?
+  phone          String?
+  companyName    String?
+  source         String?
+  status         CRMLeadStatus @default(NEW)
+  estimatedValue Decimal?      @db.Decimal(12, 2)
+  currency       String        @default("USD")
+  aiScore        Int?
+  aiScoreReason  String?
+  aiScoredAt     DateTime?
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  company        Company?      @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  contact        Contact?      @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  assignedUser   User?         @relation("LeadAssignee", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  deals          Deal[]
+  tasks          Task[]
+  notes          Note[]
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  deletedAt      DateTime?
+
+  @@index([organizationId, status, deletedAt])
+  @@index([organizationId, aiScore])
+  @@index([companyId])
+  @@index([contactId])
+  @@index([assignedUserId])
+}
+
+model Pipeline {
+  id             String          @id @default(cuid())
+  organizationId String
+  name           String
+  description    String?
+  isDefault      Boolean         @default(false)
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  stages         PipelineStage[]
+  deals          Deal[]
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  deletedAt      DateTime?
+
+  @@index([organizationId, isDefault, deletedAt])
+}
+
+model PipelineStage {
+  id             String       @id @default(cuid())
+  organizationId String
+  pipelineId     String
+  name           String
+  position       Int
+  probability    Int          @default(0)
+  color          String?
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  pipeline       Pipeline     @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+  deals          Deal[]
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  deletedAt      DateTime?
+
+  @@unique([pipelineId, position])
+  @@index([organizationId, deletedAt])
+  @@index([pipelineId, position])
+}
+
+model Deal {
+  id                String              @id @default(cuid())
+  organizationId    String
+  pipelineId        String
+  stageId           String
+  companyId         String?
+  contactId         String?
+  leadId            String?
+  assignedUserId    String?
+  title             String
+  description       String?
+  value             Decimal             @default(0) @db.Decimal(12, 2)
+  currency          String              @default("USD")
+  status            CRMDealStatus        @default(OPEN)
+  expectedCloseDate DateTime?
+  wonAt             DateTime?
+  lostAt            DateTime?
+  organization      Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  pipeline          Pipeline            @relation(fields: [pipelineId], references: [id], onDelete: Restrict)
+  stage             PipelineStage       @relation(fields: [stageId], references: [id], onDelete: Restrict)
+  company           Company?            @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  contact           Contact?            @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  lead              Lead?               @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  assignedUser      User?               @relation("DealAssignee", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  activities        DealActivity[]
+  tasks             Task[]
+  notes             Note[]
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  deletedAt         DateTime?
+
+  @@index([organizationId, status, deletedAt])
+  @@index([pipelineId, stageId])
+  @@index([companyId])
+  @@index([contactId])
+  @@index([leadId])
+  @@index([assignedUserId])
+}
+
+model DealActivity {
+  id             String              @id @default(cuid())
+  organizationId String
+  dealId         String
+  userId         String?
+  type           CRMDealActivityType @default(NOTE)
+  title          String
+  content        String?
+  metadata       Json?
+  organization   Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  deal           Deal                @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  user           User?               @relation("DealActivityActor", fields: [userId], references: [id], onDelete: SetNull)
+  createdAt      DateTime            @default(now())
+
+  @@index([organizationId, createdAt])
+  @@index([dealId, createdAt])
+  @@index([userId])
+}
+
+model Task {
+  id             String          @id @default(cuid())
+  organizationId String
+  assignedUserId String?
+  createdById    String?
+  companyId      String?
+  contactId      String?
+  leadId         String?
+  dealId         String?
+  title          String
+  description    String?
+  status         CRMTaskStatus   @default(TODO)
+  priority       CRMTaskPriority @default(MEDIUM)
+  dueAt          DateTime?
+  completedAt    DateTime?
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  assignedUser   User?           @relation("TaskAssignee", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  createdBy      User?           @relation("TaskCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  company        Company?        @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  contact        Contact?        @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  lead           Lead?           @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  deal           Deal?           @relation(fields: [dealId], references: [id], onDelete: SetNull)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  deletedAt      DateTime?
+
+  @@index([organizationId, status, deletedAt])
+  @@index([assignedUserId])
+  @@index([createdById])
+  @@index([companyId])
+  @@index([contactId])
+  @@index([leadId])
+  @@index([dealId])
+}
+
+model Note {
+  id             String       @id @default(cuid())
+  organizationId String
+  authorId       String?
+  companyId      String?
+  contactId      String?
+  leadId         String?
+  dealId         String?
+  content        String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  author         User?        @relation("NoteAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+  company        Company?     @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  contact        Contact?     @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  lead           Lead?        @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  deal           Deal?        @relation(fields: [dealId], references: [id], onDelete: SetNull)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  deletedAt      DateTime?
+
+  @@index([organizationId, deletedAt])
+  @@index([authorId])
+  @@index([companyId])
+  @@index([contactId])
+  @@index([leadId])
+  @@index([dealId])
 }
 
 model AuditLog {

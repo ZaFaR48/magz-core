@@ -68,6 +68,8 @@ Seed login defaults:
 
 Change these in `.env` before seeding any shared environment.
 
+The seed also creates sample CRM data for the owner organization when no active CRM company records exist.
+
 ## Docker Compose
 
 ```bash
@@ -116,6 +118,13 @@ The Prisma schema includes:
 - AI conversations
 - AI messages
 - AI usage logs
+- CRM companies
+- CRM contacts
+- CRM leads with AI score fields
+- CRM pipelines and pipeline stages
+- CRM deals and deal activities
+- CRM tasks
+- CRM notes
 - Audit logs
 
 Run Prisma Studio:
@@ -146,13 +155,27 @@ Assistant API routes:
 
 Provider keys are never exposed to the frontend. See [docs/ai-router.md](./docs/ai-router.md).
 
+## CRM Core
+
+The CRM module at `/modules/crm` provides the first customer operations foundation for MAGZ:
+
+- Dashboard metrics for pipeline, leads, AI score coverage, and tasks
+- Lead creation and lead table
+- Mock AI lead scoring through `POST /api/crm/leads/:id/score`
+- Kanban pipeline board
+- Deal detail, company detail, and contact detail placeholders
+- Task creation and completion
+- Organization-scoped CRUD APIs for leads, contacts, companies, deals, pipelines, tasks, and notes
+
+See [docs/crm.md](./docs/crm.md) for architecture, API routes, seed behavior, and security notes.
+
 ## Security Notes
 
 - Set a strong `AUTH_SECRET` of at least 32 random bytes in every non-local environment.
 - Cookies are HTTP-only and use `secure` in production.
 - Passwords are hashed with bcrypt at cost 12.
 - Private routes are guarded by the Next.js proxy and admin pages plus mutation APIs enforce role checks server-side.
-- Audit logs record registration, login, logout, module changes, settings updates, AI conversation creation, and assistant chat usage.
+- Audit logs record registration, login, logout, module changes, settings updates, AI conversation creation, assistant chat usage, CRM CRUD events, and CRM lead scoring.
 - Do not use the seed password in staging or production.
 - Put production PostgreSQL behind private networking and use TLS at the edge.
 

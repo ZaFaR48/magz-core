@@ -1,6 +1,11 @@
 export {
   AuditAction,
   AIMessageRole,
+  CRMDealActivityType,
+  CRMDealStatus,
+  CRMLeadStatus,
+  CRMTaskPriority,
+  CRMTaskStatus,
   ModuleKey,
   ModuleStatus,
   PrismaClient,
