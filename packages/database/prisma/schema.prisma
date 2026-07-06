@@ -218,6 +218,8 @@ model AIConversation {
   model          String?
   messages       Json
   status         String       @default("open")
+  isPinned       Boolean      @default(false)
+  isFavorite     Boolean      @default(false)
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   project        Project?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
   user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -229,6 +231,8 @@ model AIConversation {
   updatedAt      DateTime     @updatedAt
 
   @@index([organizationId, updatedAt])
+  @@index([organizationId, isPinned, updatedAt])
+  @@index([organizationId, isFavorite, updatedAt])
   @@index([userId, updatedAt])
   @@index([routeId])
   @@index([providerId])

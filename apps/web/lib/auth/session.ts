@@ -20,7 +20,7 @@ export async function requireCurrentSession(requiredRole: MagzRole = "USER") {
   }
 
   if (!roleAtLeast(session.role, requiredRole)) {
-    redirect("/dashboard");
+    redirect("/workspace");
   }
 
   return session;

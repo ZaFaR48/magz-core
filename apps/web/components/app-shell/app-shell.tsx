@@ -23,7 +23,7 @@ import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { cn, initials } from "@/lib/utils";
 
 const navigation = [
-  { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
+  { name: "Workspace", href: "/workspace", icon: LayoutDashboard },
   { name: "AI Assistant", href: "/assistant", icon: Bot },
   { name: "Modules", href: "/modules", icon: Package2 },
   { name: "CRM", href: "/modules/crm", icon: Building2 },
@@ -59,7 +59,7 @@ export function AppShell({
         )}
       >
         <div className="flex h-16 items-center justify-between border-b border-[color:var(--line)] px-5">
-          <MagzLogo href="/dashboard" />
+          <MagzLogo href="/workspace" />
           <button
             type="button"
             title="Close navigation"
@@ -72,7 +72,10 @@ export function AppShell({
 
         <nav className="flex-1 space-y-1 overflow-y-auto p-3">
           {navigation.map((item) => {
-            const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+            const active =
+              pathname === item.href ||
+              pathname.startsWith(`${item.href}/`) ||
+              (item.href === "/workspace" && pathname === "/dashboard");
             const Icon = item.icon;
 
             return (
@@ -143,8 +146,8 @@ export function AppShell({
           >
             <Menu className="size-4" aria-hidden="true" />
           </button>
-          <Link href="/dashboard" className="text-sm font-semibold">
-            MAGZ Core
+          <Link href="/workspace" className="text-sm font-semibold">
+            MAGZ Workspace
           </Link>
           <ThemeToggle />
         </header>

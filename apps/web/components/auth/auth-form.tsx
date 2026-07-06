@@ -48,7 +48,7 @@ export function AuthForm({ mode }: { mode: AuthMode }) {
       return;
     }
 
-    router.push(searchParams.get("next") ?? "/dashboard");
+    router.push(searchParams.get("next") ?? "/workspace");
     router.refresh();
   }
 

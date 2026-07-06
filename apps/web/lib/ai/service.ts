@@ -184,6 +184,8 @@ export async function listAssistantConversations(session: AssistantSession) {
       routeKey: conversation.route?.routeKey ?? null,
       routeLabel: conversation.route?.label ?? null,
       model: conversation.model,
+      isPinned: conversation.isPinned,
+      isFavorite: conversation.isFavorite,
       updatedAt: conversation.updatedAt.toISOString(),
       createdAt: conversation.createdAt.toISOString(),
       lastMessage: conversation.aiMessages[0]
@@ -229,6 +231,8 @@ export async function getAssistantConversation(conversationId: string, session: 
       routeKey: conversation.route?.routeKey ?? null,
       routeLabel: conversation.route?.label ?? null,
       model: conversation.model,
+      isPinned: conversation.isPinned,
+      isFavorite: conversation.isFavorite,
       createdAt: conversation.createdAt.toISOString(),
       updatedAt: conversation.updatedAt.toISOString()
     },
@@ -261,6 +265,61 @@ export async function deleteAssistantConversation(conversationId: string, sessio
   await prisma.aIConversation.delete({
     where: { id: conversation.id }
   });
+}
+
+export async function updateAssistantConversation({
+  conversationId,
+  session,
+  title,
+  isPinned,
+  isFavorite
+}: {
+  conversationId: string;
+  session: AssistantSession;
+  title?: string;
+  isPinned?: boolean;
+  isFavorite?: boolean;
+}) {
+  const conversation = await getConversationForSession(conversationId, session);
+
+  const updatedConversation = await prisma.aIConversation.update({
+    where: { id: conversation.id },
+    data: {
+      title,
+      isPinned,
+      isFavorite
+    },
+    include: {
+      route: true,
+      providerRef: true,
+      aiMessages: {
+        orderBy: { createdAt: "desc" },
+        take: 1
+      }
+    }
+  });
+
+  return {
+    id: updatedConversation.id,
+    title: updatedConversation.title,
+    status: updatedConversation.status,
+    provider: updatedConversation.providerRef?.key ?? updatedConversation.provider,
+    providerName: updatedConversation.providerRef?.name ?? updatedConversation.provider,
+    routeKey: updatedConversation.route?.routeKey ?? null,
+    routeLabel: updatedConversation.route?.label ?? null,
+    model: updatedConversation.model,
+    isPinned: updatedConversation.isPinned,
+    isFavorite: updatedConversation.isFavorite,
+    updatedAt: updatedConversation.updatedAt.toISOString(),
+    createdAt: updatedConversation.createdAt.toISOString(),
+    lastMessage: updatedConversation.aiMessages[0]
+      ? {
+          role: toChatRole(updatedConversation.aiMessages[0].role),
+          content: updatedConversation.aiMessages[0].content,
+          createdAt: updatedConversation.aiMessages[0].createdAt.toISOString()
+        }
+      : null
+  };
 }
 
 export async function sendAssistantMessage({
@@ -421,7 +480,9 @@ export async function sendAssistantMessage({
         provider: response.providerKey,
         model: response.model,
         routeKey: route.routeKey,
-        routeLabel: route.label
+        routeLabel: route.label,
+        isPinned: conversation.isPinned,
+        isFavorite: conversation.isFavorite
       },
       route: {
         routeKey: route.routeKey,

@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { roleAtLeast } from "@magz/core";
 import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth/token";
 
-const privatePrefixes = ["/dashboard", "/assistant", "/modules", "/admin"];
+const privatePrefixes = ["/workspace", "/dashboard", "/assistant", "/modules", "/admin"];
 const authPages = ["/login", "/register"];
 
 export async function proxy(request: NextRequest) {
@@ -11,7 +11,7 @@ export async function proxy(request: NextRequest) {
   const session = token ? await verifySessionToken(token) : null;
 
   if (authPages.includes(pathname) && session) {
-    return NextResponse.redirect(new URL("/dashboard", request.url));
+    return NextResponse.redirect(new URL("/workspace", request.url));
   }
 
   if (!privatePrefixes.some((prefix) => pathname.startsWith(prefix))) {
@@ -25,7 +25,7 @@ export async function proxy(request: NextRequest) {
   }
 
   if (pathname.startsWith("/admin") && !roleAtLeast(session.role, "ADMIN")) {
-    return NextResponse.redirect(new URL("/dashboard", request.url));
+    return NextResponse.redirect(new URL("/workspace", request.url));
   }
 
   return NextResponse.next();
