@@ -44,6 +44,11 @@ enum AuditAction {
   CRM_ENTITY_UPDATED
   CRM_ENTITY_DELETED
   CRM_LEAD_SCORED
+  ERP_ENTITY_CREATED
+  ERP_ENTITY_UPDATED
+  MARKETPLACE_SEARCH_CREATED
+  MARKETPLACE_ANALYSIS_CREATED
+  DIAGNOSTICS_RUN
 }
 
 enum AIMessageRole {
@@ -117,29 +122,34 @@ model User {
 }
 
 model Organization {
-  id             String               @id @default(cuid())
-  name           String
-  slug           String               @unique
-  domain         String?
-  members        OrganizationMember[]
-  projects       Project[]
-  modules        OrganizationModule[]
-  conversations  AIConversation[]
-  aiMessages     AIMessage[]
-  aiModelRoutes  AIModelRoute[]
-  aiUsageLogs    AIUsageLog[]
-  companies      Company[]
-  contacts       Contact[]
-  leads          Lead[]
-  pipelines      Pipeline[]
-  pipelineStages PipelineStage[]
-  deals          Deal[]
-  dealActivities DealActivity[]
-  tasks          Task[]
-  notes          Note[]
-  auditLogs      AuditLog[]
-  createdAt      DateTime             @default(now())
-  updatedAt      DateTime             @updatedAt
+  id                  String                @id @default(cuid())
+  name                String
+  slug                String                @unique
+  domain              String?
+  members             OrganizationMember[]
+  projects            Project[]
+  modules             OrganizationModule[]
+  conversations       AIConversation[]
+  aiMessages          AIMessage[]
+  aiModelRoutes       AIModelRoute[]
+  aiUsageLogs         AIUsageLog[]
+  companies           Company[]
+  contacts            Contact[]
+  leads               Lead[]
+  pipelines           Pipeline[]
+  pipelineStages      PipelineStage[]
+  deals               Deal[]
+  dealActivities      DealActivity[]
+  tasks               Task[]
+  notes               Note[]
+  erpProducts         ERPProduct[]
+  erpInventory        ERPInventoryItem[]
+  erpInvoices         ERPInvoice[]
+  marketplaceSearches MarketplaceSearch[]
+  marketplaceAnalyses MarketplaceAnalysis[]
+  auditLogs           AuditLog[]
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
 }
 
 model OrganizationMember {
@@ -591,6 +601,120 @@ model Note {
   @@index([contactId])
   @@index([leadId])
   @@index([dealId])
+}
+
+model ERPProduct {
+  id             String             @id @default(cuid())
+  organizationId String
+  sku            String
+  name           String
+  category       String?
+  unitPrice      Decimal            @default(0) @db.Decimal(12, 2)
+  currency       String             @default("USD")
+  status         String             @default("active")
+  organization   Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  inventoryItems ERPInventoryItem[]
+  invoiceItems   ERPInvoiceItem[]
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  deletedAt      DateTime?
+
+  @@unique([organizationId, sku])
+  @@index([organizationId, status, deletedAt])
+  @@index([organizationId, name])
+}
+
+model ERPInventoryItem {
+  id             String       @id @default(cuid())
+  organizationId String
+  productId      String
+  location       String       @default("Main warehouse")
+  quantity       Int          @default(0)
+  reorderPoint   Int          @default(0)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  product        ERPProduct   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  deletedAt      DateTime?
+
+  @@unique([organizationId, productId, location])
+  @@index([organizationId, deletedAt])
+  @@index([productId])
+}
+
+model ERPInvoice {
+  id             String           @id @default(cuid())
+  organizationId String
+  invoiceNumber  String
+  customerName   String
+  customerEmail  String?
+  currency       String           @default("USD")
+  subtotal       Decimal          @default(0) @db.Decimal(12, 2)
+  tax            Decimal          @default(0) @db.Decimal(12, 2)
+  total          Decimal          @default(0) @db.Decimal(12, 2)
+  status         String           @default("draft")
+  notes          String?
+  issuedAt       DateTime         @default(now())
+  dueAt          DateTime?
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  items          ERPInvoiceItem[]
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  deletedAt      DateTime?
+
+  @@unique([organizationId, invoiceNumber])
+  @@index([organizationId, status, deletedAt])
+  @@index([organizationId, issuedAt])
+}
+
+model ERPInvoiceItem {
+  id          String      @id @default(cuid())
+  invoiceId   String
+  productId   String?
+  description String
+  quantity    Int         @default(1)
+  unitPrice   Decimal     @default(0) @db.Decimal(12, 2)
+  total       Decimal     @default(0) @db.Decimal(12, 2)
+  invoice     ERPInvoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  product     ERPProduct? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  createdAt   DateTime    @default(now())
+
+  @@index([invoiceId])
+  @@index([productId])
+}
+
+model MarketplaceSearch {
+  id             String                @id @default(cuid())
+  organizationId String
+  query          String
+  marketplace    String?
+  source         String                @default("manual")
+  results        Json
+  organization   Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  analyses       MarketplaceAnalysis[]
+  createdAt      DateTime              @default(now())
+
+  @@index([organizationId, createdAt])
+  @@index([organizationId, query])
+}
+
+model MarketplaceAnalysis {
+  id             String             @id @default(cuid())
+  organizationId String
+  searchId       String?
+  productName    String
+  marketplace    String?
+  input          Json
+  summary        String
+  recommendation String
+  score          Int                @default(50)
+  organization   Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  search         MarketplaceSearch? @relation(fields: [searchId], references: [id], onDelete: SetNull)
+  createdAt      DateTime           @default(now())
+
+  @@index([organizationId, createdAt])
+  @@index([searchId])
+  @@index([score])
 }
 
 model AuditLog {

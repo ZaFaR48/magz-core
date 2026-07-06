@@ -4,7 +4,7 @@ import { requireCurrentSession } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/prisma";
 
 const searchSchema = z.object({
-  q: z.string().trim().min(1).max(120)
+  q: z.string().trim().min(1).max(120),
 });
 
 function result({
@@ -12,7 +12,7 @@ function result({
   type,
   title,
   detail,
-  href
+  href,
 }: {
   id: string;
   type: string;
@@ -35,81 +35,156 @@ export async function GET(request: Request) {
   const query = parsed.data.q;
   const contains = { contains: query, mode: "insensitive" as const };
 
-  const [chats, companies, contacts, tasks, leads, deals, modules, projects] = await Promise.all([
+  const [
+    chats,
+    companies,
+    contacts,
+    tasks,
+    leads,
+    deals,
+    modules,
+    projects,
+    erpProducts,
+    erpInvoices,
+    marketplaceSearches,
+    marketplaceAnalyses,
+  ] = await Promise.all([
     prisma.aIConversation.findMany({
       where: {
         organizationId: session.organizationId,
         ...(session.role === "USER" ? { userId: session.userId } : {}),
-        title: contains
+        title: contains,
       },
       orderBy: { updatedAt: "desc" },
-      take: 6
+      take: 6,
     }),
     prisma.company.findMany({
       where: {
         organizationId: session.organizationId,
         deletedAt: null,
-        OR: [{ name: contains }, { domain: contains }, { industry: contains }, { region: contains }]
+        OR: [
+          { name: contains },
+          { domain: contains },
+          { industry: contains },
+          { region: contains },
+        ],
       },
       orderBy: { updatedAt: "desc" },
-      take: 5
+      take: 5,
     }),
     prisma.contact.findMany({
       where: {
         organizationId: session.organizationId,
         deletedAt: null,
-        OR: [{ firstName: contains }, { lastName: contains }, { email: contains }, { title: contains }]
+        OR: [
+          { firstName: contains },
+          { lastName: contains },
+          { email: contains },
+          { title: contains },
+        ],
       },
       include: { company: { select: { name: true } } },
       orderBy: { updatedAt: "desc" },
-      take: 5
+      take: 5,
     }),
     prisma.task.findMany({
       where: {
         organizationId: session.organizationId,
         deletedAt: null,
-        OR: [{ title: contains }, { description: contains }]
+        OR: [{ title: contains }, { description: contains }],
       },
       orderBy: { updatedAt: "desc" },
-      take: 5
+      take: 5,
     }),
     prisma.lead.findMany({
       where: {
         organizationId: session.organizationId,
         deletedAt: null,
-        OR: [{ title: contains }, { companyName: contains }, { email: contains }, { source: contains }]
+        OR: [
+          { title: contains },
+          { companyName: contains },
+          { email: contains },
+          { source: contains },
+        ],
       },
       orderBy: { updatedAt: "desc" },
-      take: 5
+      take: 5,
     }),
     prisma.deal.findMany({
       where: {
         organizationId: session.organizationId,
         deletedAt: null,
-        OR: [{ title: contains }, { description: contains }]
+        OR: [{ title: contains }, { description: contains }],
       },
       orderBy: { updatedAt: "desc" },
-      take: 5
+      take: 5,
     }),
     prisma.organizationModule.findMany({
       where: {
         organizationId: session.organizationId,
         moduleDefinition: {
-          OR: [{ name: contains }, { description: contains }, { category: contains }]
-        }
+          OR: [
+            { name: contains },
+            { description: contains },
+            { category: contains },
+          ],
+        },
       },
       include: { moduleDefinition: true },
       orderBy: { updatedAt: "desc" },
-      take: 8
+      take: 8,
     }),
     prisma.project.findMany({
       where: {
         organizationId: session.organizationId,
-        OR: [{ name: contains }, { key: contains }, { status: contains }]
+        OR: [{ name: contains }, { key: contains }, { status: contains }],
       },
       orderBy: { updatedAt: "desc" },
-      take: 5
-    })
+      take: 5,
+    }),
+    prisma.eRPProduct.findMany({
+      where: {
+        organizationId: session.organizationId,
+        deletedAt: null,
+        OR: [{ name: contains }, { sku: contains }, { category: contains }],
+      },
+      orderBy: { updatedAt: "desc" },
+      take: 5,
+    }),
+    prisma.eRPInvoice.findMany({
+      where: {
+        organizationId: session.organizationId,
+        deletedAt: null,
+        OR: [
+          { invoiceNumber: contains },
+          { customerName: contains },
+          { customerEmail: contains },
+        ],
+      },
+      orderBy: { issuedAt: "desc" },
+      take: 5,
+    }),
+    prisma.marketplaceSearch.findMany({
+      where: {
+        organizationId: session.organizationId,
+        OR: [{ query: contains }, { marketplace: contains }],
+      },
+      orderBy: { createdAt: "desc" },
+      take: 5,
+    }),
+    prisma.marketplaceAnalysis.findMany({
+      where: {
+        organizationId: session.organizationId,
+        OR: [
+          { productName: contains },
+          { marketplace: contains },
+          { summary: contains },
+          { recommendation: contains },
+        ],
+      },
+      orderBy: { createdAt: "desc" },
+      take: 5,
+    }),
   ]);
 
   const results = [
@@ -119,26 +194,31 @@ export async function GET(request: Request) {
         type: "Chat",
         title: chat.title,
         detail: chat.model ?? "AI conversation",
-        href: `/workspace?conversation=${chat.id}`
-      })
+        href: `/workspace?conversation=${chat.id}`,
+      }),
     ),
     ...companies.map((company) =>
       result({
         id: `company:${company.id}`,
         type: "Company",
         title: company.name,
-        detail: [company.industry, company.region].filter(Boolean).join(" - ") || "CRM company",
-        href: "/modules/crm"
-      })
+        detail:
+          [company.industry, company.region].filter(Boolean).join(" - ") ||
+          "CRM company",
+        href: "/modules/crm",
+      }),
     ),
     ...contacts.map((contact) =>
       result({
         id: `contact:${contact.id}`,
         type: "Contact",
         title: [contact.firstName, contact.lastName].filter(Boolean).join(" "),
-        detail: [contact.title, contact.company?.name, contact.email].filter(Boolean).join(" - ") || "CRM contact",
-        href: "/modules/crm"
-      })
+        detail:
+          [contact.title, contact.company?.name, contact.email]
+            .filter(Boolean)
+            .join(" - ") || "CRM contact",
+        href: "/modules/crm",
+      }),
     ),
     ...tasks.map((task) =>
       result({
@@ -146,8 +226,8 @@ export async function GET(request: Request) {
         type: "Task",
         title: task.title,
         detail: `${task.status} - ${task.priority}`,
-        href: "/modules/crm"
-      })
+        href: "/modules/crm",
+      }),
     ),
     ...leads.map((lead) =>
       result({
@@ -155,8 +235,8 @@ export async function GET(request: Request) {
         type: "CRM",
         title: lead.title,
         detail: lead.companyName ?? lead.email ?? "Lead",
-        href: "/modules/crm"
-      })
+        href: "/modules/crm",
+      }),
     ),
     ...deals.map((deal) =>
       result({
@@ -164,8 +244,8 @@ export async function GET(request: Request) {
         type: "CRM",
         title: deal.title,
         detail: `${deal.status} - ${deal.currency} ${deal.value.toString()}`,
-        href: "/modules/crm"
-      })
+        href: "/modules/crm",
+      }),
     ),
     ...modules.map((module) =>
       result({
@@ -177,8 +257,8 @@ export async function GET(request: Request) {
             : "Module",
         title: module.moduleDefinition.name,
         detail: module.moduleDefinition.description,
-        href: module.moduleDefinition.path
-      })
+        href: module.moduleDefinition.path,
+      }),
     ),
     ...projects.map((project) =>
       result({
@@ -186,9 +266,45 @@ export async function GET(request: Request) {
         type: "Files",
         title: project.name,
         detail: `Project ${project.key}`,
-        href: "/modules"
-      })
-    )
+        href: "/modules",
+      }),
+    ),
+    ...erpProducts.map((product) =>
+      result({
+        id: `erp-product:${product.id}`,
+        type: "ERP",
+        title: product.name,
+        detail: `${product.sku} - ${product.currency} ${product.unitPrice.toString()}`,
+        href: "/workspace",
+      }),
+    ),
+    ...erpInvoices.map((invoice) =>
+      result({
+        id: `erp-invoice:${invoice.id}`,
+        type: "ERP",
+        title: invoice.invoiceNumber,
+        detail: `${invoice.customerName} - ${invoice.currency} ${invoice.total.toString()}`,
+        href: "/workspace",
+      }),
+    ),
+    ...marketplaceSearches.map((search) =>
+      result({
+        id: `marketplace-search:${search.id}`,
+        type: "Marketplace",
+        title: search.query,
+        detail: search.marketplace ?? "Marketplace search",
+        href: "/workspace",
+      }),
+    ),
+    ...marketplaceAnalyses.map((analysis) =>
+      result({
+        id: `marketplace-analysis:${analysis.id}`,
+        type: "Marketplace",
+        title: analysis.productName,
+        detail: `Score ${analysis.score} - ${analysis.marketplace ?? "Marketplace"}`,
+        href: "/workspace",
+      }),
+    ),
   ].slice(0, 30);
 
   return NextResponse.json({ results });

@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
-  Bell,
   Bot,
   BriefcaseBusiness,
   CalendarDays,
@@ -50,6 +49,12 @@ import {
 } from "react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { IconTile, Surface } from "@/components/ui/surface";
+import {
+  NetworkStatusWidget,
+  NotificationCenter,
+  OperatingModulesPanel,
+} from "@/modules/workspace/workspace-operating-widgets";
+import { useI18n } from "@/lib/i18n/client";
 import { cn, formatDateTime } from "@/lib/utils";
 
 type SessionInfo = {
@@ -647,20 +652,6 @@ function detectDefaultLanguage() {
   return matchedLanguage?.label ?? "English";
 }
 
-function friendlyActivity(action: string) {
-  const friendlyNames: Record<string, string> = {
-    AUTH_LOGIN: "Signed in to MAGZ",
-    ASSISTANT_CHAT: "Asked MAGZ Assistant",
-    CRM_ENTITY_CREATED: "Created a CRM record",
-    CRM_ENTITY_UPDATED: "Updated CRM work",
-    CRM_LEAD_SCORED: "Scored a lead with AI",
-    MARKETPLACE_INSIGHT_GENERATED: "Generated a seller insight",
-    SETTINGS_UPDATED: "Updated workspace settings",
-  };
-
-  return friendlyNames[action] ?? "Updated workspace activity";
-}
-
 function friendlyStatus(status: string) {
   return status
     .toLowerCase()
@@ -687,11 +678,11 @@ export function WorkspaceClient({
 }: {
   initialState: WorkspaceInitialState;
 }) {
+  const { t } = useI18n();
   const searchParams = useSearchParams();
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const [clock, setClock] = useState(() => new Date());
   const [query, setQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -758,17 +749,21 @@ export function WorkspaceClient({
   );
 
   const profileName = initialState.session.name ?? "MAGZ Owner";
-  const pinnedProjects = initialState.projects.slice(0, 3);
   const recentChats = conversations.slice(0, 4);
+  const pinnedConversations = orderedConversations
+    .filter((conversation) => conversation.isPinned)
+    .slice(0, 4);
+  const favoriteTools = quickTools
+    .filter((tool) =>
+      ["fix-error", "translate", "write-email", "business-plan"].includes(
+        tool.id,
+      ),
+    )
+    .slice(0, 4);
+  const frequentModules = businessTools.slice(0, 5);
   const pendingTasks = initialState.tasks
     .filter((task) => task.status !== "DONE")
-    .slice(0, 3);
-  const notifications = [
-    `${initialState.counts.tasks} tasks waiting for action`,
-    `${initialState.counts.chats} saved AI conversations`,
-    `${initialState.counts.modules} business modules active`,
-  ];
-
+    .slice(0, 5);
   const refreshConversations = useCallback(async () => {
     const payload = await fetchJson<{
       routes: RouteOption[];
@@ -828,11 +823,6 @@ export function WorkspaceClient({
 
     return undefined;
   }, [openConversation, searchParams]);
-
-  useEffect(() => {
-    const timer = window.setInterval(() => setClock(new Date()), 60_000);
-    return () => window.clearInterval(timer);
-  }, []);
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
@@ -1158,18 +1148,18 @@ export function WorkspaceClient({
 
   return (
     <div className="space-y-5">
-      <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
+      <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
         <Surface className="overflow-hidden p-5">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
             <div className="min-w-0">
               <p className="text-sm font-semibold uppercase tracking-[0.18em] text-cyan-600 dark:text-cyan-300">
-                Workspace
+                {t("workspace")}
               </p>
               <h1 className="mt-3 text-3xl font-semibold tracking-normal md:text-4xl">
-                Welcome back, {profileName}
+                {t("welcomeBack")}, {profileName}
               </h1>
               <p className="mt-2 text-lg text-[color:var(--muted)]">
-                What do you want to solve today?
+                {t("solveToday")}
               </p>
               <div className="mt-4 flex flex-wrap gap-2 text-xs font-semibold text-[color:var(--muted)]">
                 <span className="rounded-full border border-[color:var(--line)] bg-[color:var(--panel-soft)] px-3 py-1.5">
@@ -1179,25 +1169,6 @@ export function WorkspaceClient({
                   {initialState.session.role.toLowerCase()} workspace
                 </span>
               </div>
-            </div>
-
-            <div className="w-full rounded-lg border border-[color:var(--line)] bg-[color:var(--panel-soft)] p-4 text-left lg:w-52">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[color:var(--muted)]">
-                Local time
-              </p>
-              <p className="mt-2 text-2xl font-semibold">
-                {clock.toLocaleTimeString([], {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
-              </p>
-              <p className="mt-1 text-sm text-[color:var(--muted)]">
-                {clock.toLocaleDateString([], {
-                  weekday: "short",
-                  month: "short",
-                  day: "numeric",
-                })}
-              </p>
             </div>
           </div>
 
@@ -1216,7 +1187,7 @@ export function WorkspaceClient({
                   }
                 }}
                 rows={2}
-                placeholder="Ask MAGZ anything..."
+                placeholder={t("askAnything")}
                 className="min-h-14 flex-1 resize-none border-0 bg-transparent px-1 py-2 text-base outline-none placeholder:text-[color:var(--muted)]"
               />
               <button
@@ -1244,7 +1215,7 @@ export function WorkspaceClient({
               ref={searchRef}
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search everything: chats, CRM, ERP, marketplace, files, contacts, companies, and tasks"
+              placeholder={t("searchEverything")}
               className="h-12 w-full rounded-lg border border-[color:var(--line)] bg-[color:var(--panel-soft)] px-10 text-sm outline-none transition focus:border-cyan-400"
             />
             {query ? (
@@ -1297,56 +1268,19 @@ export function WorkspaceClient({
           ) : null}
         </Surface>
 
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-1">
-          <Surface className="p-5">
-            <div className="flex items-center gap-3">
-              <IconTile icon={Bell} className="size-10" />
-              <div>
-                <h2 className="font-semibold">Notifications</h2>
-                <p className="text-sm text-[color:var(--muted)]">
-                  Things worth checking
-                </p>
-              </div>
-            </div>
-            <div className="mt-4 space-y-2">
-              {notifications.map((notification) => (
-                <p
-                  key={notification}
-                  className="rounded-lg border border-[color:var(--line)] bg-[color:var(--panel-soft)] px-3 py-2 text-sm"
-                >
-                  {notification}
-                </p>
-              ))}
-            </div>
-          </Surface>
-
-          <Surface className="p-5">
-            <h2 className="font-semibold">Recent Activity</h2>
-            <div className="mt-4 space-y-3">
-              {initialState.activities.length ? (
-                initialState.activities.map((activity) => (
-                  <div
-                    key={activity.id}
-                    className="rounded-lg border border-[color:var(--line)] bg-[color:var(--panel-soft)] p-3 text-sm"
-                  >
-                    <p className="font-medium">
-                      {friendlyActivity(activity.action)}
-                    </p>
-                    <p className="mt-1 text-xs text-[color:var(--muted)]">
-                      {activity.actor} - {formatDateTime(activity.createdAt)}
-                    </p>
-                  </div>
-                ))
-              ) : (
-                <p className="rounded-lg border border-dashed border-[color:var(--line)] p-3 text-sm text-[color:var(--muted)]">
-                  Your team activity will appear here after people start using
-                  MAGZ.
-                </p>
-              )}
-            </div>
-          </Surface>
+        <div className="space-y-4">
+          <div className="flex justify-end">
+            <NotificationCenter
+              activities={initialState.activities}
+              conversations={conversations}
+              tasks={initialState.tasks}
+            />
+          </div>
+          <NetworkStatusWidget />
         </div>
       </section>
+
+      <OperatingModulesPanel onStartNewConversation={startNewConversation} />
 
       <section className="grid gap-5 2xl:grid-cols-[280px_minmax(0,1fr)_280px]">
         <aside className="space-y-3">
@@ -1782,7 +1716,7 @@ export function WorkspaceClient({
 
       <section className="grid gap-5 lg:grid-cols-3">
         <BottomPanel
-          title="Recent files"
+          title={t("recentFiles")}
           emptyText="Attach a PDF, DOCX, Excel file, or image to see it here."
         >
           {files.slice(0, 5).map((file) => {
@@ -1804,7 +1738,7 @@ export function WorkspaceClient({
         </BottomPanel>
 
         <BottomPanel
-          title="Recent AI chats"
+          title={t("recentChats")}
           emptyText="Ask MAGZ a question or run a quick tool to create your first chat."
         >
           {recentChats.map((conversation) => (
@@ -1828,65 +1762,107 @@ export function WorkspaceClient({
         </BottomPanel>
 
         <BottomPanel
-          title="Pinned projects"
-          emptyText="Pinned projects will appear after your team creates them."
+          title={t("recentTasks")}
+          emptyText="No urgent tasks are waiting. Create CRM follow-ups as work arrives."
         >
-          {pinnedProjects.map((project) => (
-            <Link key={project.id} href="/modules" className={bottomRowClass}>
-              <FolderKanban
+          {pendingTasks.map((task) => (
+            <Link key={task.id} href="/modules/crm" className={bottomRowClass}>
+              <CheckSquare
                 className="size-4 text-cyan-500"
                 aria-hidden="true"
               />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm font-semibold">
-                  {project.name}
+                  {task.title}
                 </span>
                 <span className="text-xs text-[color:var(--muted)]">
-                  {project.key} - {friendlyStatus(project.status)}
+                  {friendlyStatus(task.priority)} priority
+                  {task.dueAt ? ` - ${formatDateTime(task.dueAt)}` : ""}
                 </span>
               </span>
             </Link>
           ))}
         </BottomPanel>
-      </section>
 
-      <Surface className="p-5">
-        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-          <div>
-            <h2 className="font-semibold">Today</h2>
-            <p className="mt-1 text-sm text-[color:var(--muted)]">
-              The next useful work items from your CRM and Workspace.
-            </p>
-          </div>
-          <Link
-            className={buttonVariants({ variant: "secondary", size: "sm" })}
-            href="/modules/crm"
-          >
-            Open tasks
-          </Link>
-        </div>
-        <div className="mt-4 grid gap-3 md:grid-cols-3">
-          {pendingTasks.length ? (
-            pendingTasks.map((task) => (
-              <div
-                key={task.id}
-                className="rounded-lg border border-[color:var(--line)] bg-[color:var(--panel-soft)] p-4"
+        <BottomPanel
+          title={t("pinnedConversations")}
+          emptyText="Pin useful conversations from the AI chat list."
+        >
+          {pinnedConversations.map((conversation) => (
+            <button
+              key={conversation.id}
+              type="button"
+              className={bottomRowClass}
+              onClick={() => void openConversation(conversation.id)}
+            >
+              <Pin className="size-4 text-cyan-500" aria-hidden="true" />
+              <span className="min-w-0 flex-1 text-left">
+                <span className="block truncate text-sm font-semibold">
+                  {conversation.title}
+                </span>
+                <span className="text-xs text-[color:var(--muted)]">
+                  {formatDateTime(conversation.updatedAt)}
+                </span>
+              </span>
+            </button>
+          ))}
+        </BottomPanel>
+
+        <BottomPanel
+          title={t("favoriteTools")}
+          emptyText="Favorite tools will appear after you use Workspace."
+        >
+          {favoriteTools.map((tool) => {
+            const Icon = tool.icon;
+
+            return (
+              <button
+                key={tool.id}
+                type="button"
+                className={bottomRowClass}
+                onClick={() => openTool(tool)}
               >
-                <p className="text-sm font-semibold">{task.title}</p>
-                <p className="mt-2 text-xs text-[color:var(--muted)]">
-                  {friendlyStatus(task.priority)} priority
-                  {task.dueAt ? ` - Due ${formatDateTime(task.dueAt)}` : ""}
-                </p>
-              </div>
-            ))
-          ) : (
-            <p className="rounded-lg border border-dashed border-[color:var(--line)] p-4 text-sm text-[color:var(--muted)] md:col-span-3">
-              No urgent tasks are waiting. You can create CRM follow-ups when
-              new leads arrive.
-            </p>
-          )}
-        </div>
-      </Surface>
+                <Icon className="size-4 text-cyan-500" aria-hidden="true" />
+                <span className="min-w-0 flex-1 text-left">
+                  <span className="block truncate text-sm font-semibold">
+                    {tool.title}
+                  </span>
+                  <span className="text-xs text-[color:var(--muted)]">
+                    {tool.detail}
+                  </span>
+                </span>
+              </button>
+            );
+          })}
+        </BottomPanel>
+
+        <BottomPanel
+          title={t("frequentModules")}
+          emptyText="Your most used modules will appear here."
+        >
+          {frequentModules.map((tool) => {
+            const Icon = tool.icon;
+
+            return (
+              <Link
+                key={tool.title}
+                href={tool.href}
+                className={bottomRowClass}
+              >
+                <Icon className="size-4 text-cyan-500" aria-hidden="true" />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-semibold">
+                    {tool.title}
+                  </span>
+                  <span className="text-xs text-[color:var(--muted)]">
+                    {tool.detail}
+                  </span>
+                </span>
+              </Link>
+            );
+          })}
+        </BottomPanel>
+      </section>
 
       {activeTool ? (
         <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/70 p-4 backdrop-blur-sm">

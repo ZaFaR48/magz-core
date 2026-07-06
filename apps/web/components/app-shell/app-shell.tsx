@@ -22,6 +22,7 @@ import type { SessionPayload } from "@/lib/auth/token";
 import { buttonVariants } from "@/components/ui/button";
 import { MagzLogo } from "@/components/ui/magz-logo";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
+import { useI18n, type UiLanguageCode } from "@/lib/i18n/client";
 import { cn, initials } from "@/lib/utils";
 
 const navigation = [
@@ -46,6 +47,8 @@ function UserMenuPanel({
   onLogout: () => void;
   className?: string;
 }) {
+  const { language, languages, setLanguage, t } = useI18n();
+
   return (
     <div
       className={cn(
@@ -71,9 +74,46 @@ function UserMenuPanel({
           {session.role}
         </span>
       </div>
+      <div className="space-y-2 border-b border-[color:var(--line)] p-3">
+        {[
+          { label: t("profile"), href: "/workspace" },
+          { label: t("settings"), href: "/admin/settings" },
+          { label: t("organization"), href: "/admin/settings" },
+          { label: t("billing"), href: "/admin/settings" },
+          { label: t("apiKeys"), href: "/admin/settings" },
+        ].map((item) => (
+          <Link
+            key={item.label}
+            href={item.href}
+            className="block rounded-lg px-2 py-2 text-sm font-medium text-[color:var(--muted)] transition hover:bg-cyan-400/10 hover:text-[color:var(--foreground)]"
+          >
+            {item.label}
+          </Link>
+        ))}
+      </div>
+      <div className="space-y-3 border-b border-[color:var(--line)] p-3">
+        <label className="block">
+          <span className="text-sm font-medium text-[color:var(--muted)]">
+            {t("language")}
+          </span>
+          <select
+            value={language}
+            onChange={(event) =>
+              setLanguage(event.target.value as UiLanguageCode)
+            }
+            className="mt-2 h-10 w-full rounded-lg border border-[color:var(--line)] bg-[color:var(--panel-soft)] px-3 text-sm outline-none transition focus:border-cyan-400"
+          >
+            {languages.map((item) => (
+              <option key={item.code} value={item.code}>
+                {item.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
       <div className="flex items-center justify-between gap-3 p-3">
         <span className="text-sm font-medium text-[color:var(--muted)]">
-          Appearance
+          {t("theme")}
         </span>
         <ThemeToggle />
       </div>
@@ -83,7 +123,7 @@ function UserMenuPanel({
         className="flex w-full items-center gap-2 border-t border-[color:var(--line)] px-3 py-3 text-sm font-semibold text-red-700 transition hover:bg-red-500/10 dark:text-red-300"
       >
         <LogOut className="size-4" aria-hidden="true" />
-        Sign out
+        {t("logout")}
       </button>
     </div>
   );
