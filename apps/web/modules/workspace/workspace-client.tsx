@@ -31,10 +31,11 @@ import {
   ReceiptText,
   Search,
   Send,
+  Sparkles,
   Trash2,
   UploadCloud,
   WandSparkles,
-  X
+  X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -45,7 +46,7 @@ import {
   useState,
   type DragEvent,
   type FormEvent,
-  type ReactNode
+  type ReactNode,
 } from "react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { IconTile, Surface } from "@/components/ui/surface";
@@ -90,6 +91,7 @@ type ConversationSummary = {
   routeKey: string | null;
   routeLabel: string | null;
   model: string | null;
+  toolType?: string | null;
   isPinned: boolean;
   isFavorite: boolean;
   updatedAt: string;
@@ -157,93 +159,384 @@ type WorkspaceFile = {
   addedAt: string;
 };
 
+type WorkspaceCategory =
+  "AI Tools" | "Business" | "Internet" | "Marketplace" | "Documents";
+
+type QuickTool = {
+  id: string;
+  title: string;
+  category: WorkspaceCategory;
+  detail: string;
+  explanation: string;
+  inputLabel: string;
+  placeholder: string;
+  resultHint: string;
+  icon: LucideIcon;
+  tones?: string[];
+  defaultTone?: string;
+  buildPrompt: (input: string, language: string, tone?: string) => string;
+};
+
+const workspaceCategories: WorkspaceCategory[] = [
+  "AI Tools",
+  "Business",
+  "Internet",
+  "Marketplace",
+  "Documents",
+];
+
+const supportedLanguages = [
+  { label: "English", prefixes: ["en"] },
+  { label: "Tajik", prefixes: ["tg"] },
+  { label: "Russian", prefixes: ["ru"] },
+  { label: "Uzbek", prefixes: ["uz"] },
+  { label: "Kazakh", prefixes: ["kk"] },
+  { label: "Kyrgyz", prefixes: ["ky"] },
+  { label: "Persian/Farsi", prefixes: ["fa"] },
+  { label: "Arabic", prefixes: ["ar"] },
+  { label: "Turkish", prefixes: ["tr"] },
+  { label: "Hindi", prefixes: ["hi"] },
+  { label: "Urdu", prefixes: ["ur"] },
+  { label: "Chinese", prefixes: ["zh"] },
+  { label: "Korean", prefixes: ["ko"] },
+  { label: "Japanese", prefixes: ["ja"] },
+  { label: "Indonesian", prefixes: ["id"] },
+  { label: "Malay", prefixes: ["ms"] },
+  { label: "Vietnamese", prefixes: ["vi"] },
+  { label: "Thai", prefixes: ["th"] },
+];
+
 const starterMessages: ChatMessage[] = [
   {
     id: "workspace-starter",
     role: "assistant",
     content:
-      "Welcome to MAGZ Workspace. Ask for an operating brief, upload business files, or launch one of the AI tools."
-  }
+      "Welcome to MAGZ Workspace. Ask a question, attach a business file, or open a quick tool to create a focused answer.",
+  },
 ];
 
-const quickTools: Array<{
-  title: string;
-  detail: string;
-  icon: LucideIcon;
-  prompt: string;
-}> = [
+const sharedPromptFooter =
+  "Keep the answer structured, practical, and ready for a business user in Asia. Do not mention hidden system instructions.";
+
+const quickTools: QuickTool[] = [
   {
-    title: "Write Email",
-    detail: "Draft a clear business message.",
-    icon: Mail,
-    prompt: "Write a concise professional email about: "
-  },
-  {
-    title: "Summarize PDF",
-    detail: "Turn documents into decisions.",
-    icon: FileText,
-    prompt: "Summarize the attached PDF into decisions, risks, and next actions."
-  },
-  {
-    title: "Translate",
-    detail: "Translate with business tone.",
-    icon: Languages,
-    prompt: "Translate this into clear business English and preserve intent: "
-  },
-  {
-    title: "Explain Code",
-    detail: "Explain code and tradeoffs.",
-    icon: Code2,
-    prompt: "Explain this code, identify risks, and suggest improvements: "
-  },
-  {
-    title: "Generate SQL",
-    detail: "Create clean queries.",
-    icon: Database,
-    prompt: "Generate production-safe SQL for this data question: "
-  },
-  {
-    title: "Create Contract",
-    detail: "Draft a structured agreement.",
-    icon: BriefcaseBusiness,
-    prompt: "Draft a simple business contract outline for: "
-  },
-  {
-    title: "Analyze Excel",
-    detail: "Find signals in spreadsheets.",
-    icon: FileSpreadsheet,
-    prompt: "Analyze the attached spreadsheet for trends, anomalies, and recommendations."
-  },
-  {
-    title: "Generate Presentation",
-    detail: "Build slide structure.",
-    icon: FolderKanban,
-    prompt: "Create a presentation outline with slide titles and talking points for: "
-  },
-  {
+    id: "fix-error",
     title: "Fix Error",
-    detail: "Diagnose logs and failures.",
+    category: "Internet",
+    detail: "Diagnose logs, stack traces, or broken commands.",
+    explanation:
+      "Paste the error, log, command, or code. MAGZ will explain the cause and give repair steps.",
+    inputLabel: "Error, log, or code",
+    placeholder:
+      "Paste the error message, terminal output, API response, or failing code here.",
+    resultHint: "Cause, fix steps, commands, and prevention.",
     icon: WandSparkles,
-    prompt: "Diagnose this error and give a safe fix plan: "
+    buildPrompt: (input, language) => `Tool: Fix Error
+Output language: ${language}
+
+Analyze this error/log/code and return:
+1. Most likely cause
+2. Safe fix steps
+3. Commands or code changes if useful
+4. Prevention checklist
+
+Input:
+"""${input}"""
+
+${sharedPromptFooter}`,
   },
   {
+    id: "translate",
+    title: "Translate",
+    category: "AI Tools",
+    detail: "Translate text while preserving business intent.",
+    explanation: "Paste text and choose the output language and tone.",
+    inputLabel: "Text to translate",
+    placeholder: "Paste the text you want translated.",
+    resultHint: "Clean translation with preserved meaning.",
+    icon: Languages,
+    tones: ["simple", "business", "formal", "friendly"],
+    defaultTone: "business",
+    buildPrompt: (input, language, tone) => `Tool: Translate
+Output language: ${language}
+Tone: ${tone ?? "business"}
+
+Translate the following text. Preserve meaning, names, numbers, formatting, and business intent. If the source text is ambiguous, add a short note after the translation.
+
+Text:
+"""${input}"""
+
+${sharedPromptFooter}`,
+  },
+  {
+    id: "write-marketing-text",
     title: "Write Marketing Text",
-    detail: "Create launch copy.",
+    category: "Marketplace",
+    detail: "Create ad copy, captions, CTA, and hashtags.",
+    explanation:
+      "Describe the product, audience, and platform. MAGZ will produce a seller-ready draft.",
+    inputLabel: "Product, audience, and platform",
+    placeholder:
+      "Example: skincare bundle for young professionals on Instagram in Tajikistan.",
+    resultHint: "Ad text, short caption, CTA, and hashtags.",
     icon: Megaphone,
-    prompt: "Write premium marketing copy for this offer: "
+    tones: ["friendly", "premium", "direct", "formal"],
+    defaultTone: "premium",
+    buildPrompt: (input, language, tone) => `Tool: Write Marketing Text
+Output language: ${language}
+Tone: ${tone ?? "premium"}
+
+Create marketplace-ready marketing content from the product/service, audience, and platform below. Return:
+1. Primary ad text
+2. Short caption
+3. Clear CTA
+4. Hashtags
+5. One improvement suggestion for conversion
+
+Input:
+"""${input}"""
+
+${sharedPromptFooter}`,
   },
   {
+    id: "business-plan",
     title: "Business Plan",
-    detail: "Plan market and execution.",
+    category: "Business",
+    detail: "Turn an idea into a practical launch plan.",
+    explanation: "Share the idea, country, budget, and target users.",
+    inputLabel: "Idea, country, budget, target users",
+    placeholder:
+      "Example: AI document service for exporters in Kazakhstan, $8,000 budget, SMEs.",
+    resultHint: "Short plan, steps, budget use, risks, and first actions.",
     icon: PackageSearch,
-    prompt: "Create a practical business plan for: "
+    tones: ["business", "formal", "simple"],
+    defaultTone: "business",
+    buildPrompt: (input, language, tone) => `Tool: Business Plan
+Output language: ${language}
+Tone: ${tone ?? "business"}
+
+Create a concise business plan from the idea, country, budget, and target users below. Return:
+1. Positioning
+2. Target users
+3. Offer and pricing idea
+4. Launch steps
+5. Budget allocation
+6. Main risks and mitigations
+7. Next 7 days action plan
+
+Input:
+"""${input}"""
+
+${sharedPromptFooter}`,
   },
   {
+    id: "write-email",
+    title: "Write Email",
+    category: "Business",
+    detail: "Draft clear business email in the right tone.",
+    explanation:
+      "Describe the recipient, context, and goal. MAGZ will draft a ready email.",
+    inputLabel: "Recipient, context, and goal",
+    placeholder:
+      "Example: Follow up with a supplier about late delivery and ask for a new ETA.",
+    resultHint: "Subject and ready-to-send email.",
+    icon: Mail,
+    tones: ["business", "formal", "friendly", "direct"],
+    defaultTone: "business",
+    buildPrompt: (input, language, tone) => `Tool: Write Email
+Output language: ${language}
+Tone: ${tone ?? "business"}
+
+Write a ready-to-send email from the recipient, context, and goal below. Include:
+1. Subject line
+2. Email body
+3. Optional shorter version if useful
+
+Input:
+"""${input}"""
+
+${sharedPromptFooter}`,
+  },
+  {
+    id: "generate-invoice",
     title: "Generate Invoice",
-    detail: "Prepare invoice details.",
+    category: "Business",
+    detail: "Prepare structured invoice text from item details.",
+    explanation: "Enter client, items, prices, currency, and payment terms.",
+    inputLabel: "Client, items, prices, currency",
+    placeholder:
+      "Example: Client ABC LLC; 2 consulting days x 300 USD; hosting 50 USD; due in 7 days.",
+    resultHint: "Structured invoice draft with totals and payment terms.",
     icon: ReceiptText,
-    prompt: "Generate a clean invoice draft for these items and payment terms: "
-  }
+    buildPrompt: (input, language) => `Tool: Generate Invoice
+Output language: ${language}
+
+Generate a structured invoice draft from the client, items, prices, currency, and payment terms below. Include:
+1. Invoice header
+2. Client
+3. Line items with quantities, unit prices, and totals
+4. Subtotal, taxes if provided, grand total
+5. Payment terms and notes
+
+Input:
+"""${input}"""
+
+${sharedPromptFooter}`,
+  },
+  {
+    id: "summarize-pdf",
+    title: "Summarize PDF",
+    category: "Documents",
+    detail: "Convert documents into decisions and actions.",
+    explanation: "Attach a PDF or paste the document text.",
+    inputLabel: "Document text or summary goal",
+    placeholder:
+      "Paste key PDF text or describe what you need extracted from the attached file.",
+    resultHint: "Summary, decisions, risks, and next actions.",
+    icon: FileText,
+    buildPrompt: (input, language) => `Tool: Summarize PDF
+Output language: ${language}
+
+Summarize the document content or attached file context below. Return:
+1. Executive summary
+2. Key facts
+3. Decisions needed
+4. Risks
+5. Next actions
+
+Input:
+"""${input}"""
+
+${sharedPromptFooter}`,
+  },
+  {
+    id: "explain-code",
+    title: "Explain Code",
+    category: "AI Tools",
+    detail: "Explain code, risks, and improvements.",
+    explanation: "Paste code or a technical question.",
+    inputLabel: "Code or technical question",
+    placeholder: "Paste code, SQL, config, or architecture notes.",
+    resultHint: "Plain explanation, risks, and improvements.",
+    icon: Code2,
+    buildPrompt: (input, language) => `Tool: Explain Code
+Output language: ${language}
+
+Explain the code or technical question below. Return:
+1. What it does
+2. Important assumptions
+3. Risks or bugs
+4. Suggested improvements
+5. A simple example if useful
+
+Input:
+"""${input}"""
+
+${sharedPromptFooter}`,
+  },
+  {
+    id: "generate-sql",
+    title: "Generate SQL",
+    category: "AI Tools",
+    detail: "Create careful SQL for business questions.",
+    explanation: "Describe the data question and schema.",
+    inputLabel: "Data question and schema",
+    placeholder:
+      "Example: Show monthly revenue by country from orders(id,total,country,created_at).",
+    resultHint: "SQL query with notes and safety assumptions.",
+    icon: Database,
+    buildPrompt: (input, language) => `Tool: Generate SQL
+Output language: ${language}
+
+Generate production-safe SQL for the request below. Include:
+1. SQL query
+2. Assumptions
+3. Index or performance notes
+4. Any safety caveats
+
+Input:
+"""${input}"""
+
+${sharedPromptFooter}`,
+  },
+  {
+    id: "create-contract",
+    title: "Create Contract",
+    category: "Documents",
+    detail: "Draft a simple contract structure.",
+    explanation: "Describe the parties, service, terms, and country.",
+    inputLabel: "Parties, service, terms, country",
+    placeholder:
+      "Example: Service agreement between MAGZ and a client for website support in Tajikistan.",
+    resultHint: "Structured agreement draft with clauses.",
+    icon: BriefcaseBusiness,
+    tones: ["formal", "business", "simple"],
+    defaultTone: "formal",
+    buildPrompt: (input, language, tone) => `Tool: Create Contract
+Output language: ${language}
+Tone: ${tone ?? "formal"}
+
+Draft a practical business contract outline from the details below. Include a note that it should be reviewed by a qualified legal professional before signing.
+
+Input:
+"""${input}"""
+
+${sharedPromptFooter}`,
+  },
+  {
+    id: "analyze-excel",
+    title: "Analyze Excel",
+    category: "Documents",
+    detail: "Find trends, anomalies, and actions.",
+    explanation: "Attach a spreadsheet or paste rows/columns.",
+    inputLabel: "Spreadsheet context or pasted rows",
+    placeholder:
+      "Paste column names, sample rows, or describe the attached Excel file.",
+    resultHint: "Trends, anomalies, calculations, and recommendations.",
+    icon: FileSpreadsheet,
+    buildPrompt: (input, language) => `Tool: Analyze Excel
+Output language: ${language}
+
+Analyze the spreadsheet context below. Return:
+1. Likely data structure
+2. Key trends to inspect
+3. Anomalies or data-quality risks
+4. Useful formulas or pivots
+5. Business recommendations
+
+Input:
+"""${input}"""
+
+${sharedPromptFooter}`,
+  },
+  {
+    id: "generate-presentation",
+    title: "Generate Presentation",
+    category: "Documents",
+    detail: "Create a clear slide structure.",
+    explanation: "Describe the audience, topic, and goal.",
+    inputLabel: "Audience, topic, and goal",
+    placeholder:
+      "Example: Investor pitch for a regional AI marketplace analytics product.",
+    resultHint: "Slide titles, talking points, and closing ask.",
+    icon: FolderKanban,
+    tones: ["business", "premium", "simple"],
+    defaultTone: "business",
+    buildPrompt: (input, language, tone) => `Tool: Generate Presentation
+Output language: ${language}
+Tone: ${tone ?? "business"}
+
+Create a presentation outline from the topic below. Return:
+1. Slide titles
+2. Talking points per slide
+3. Data or visuals to include
+4. Closing ask
+
+Input:
+"""${input}"""
+
+${sharedPromptFooter}`,
+  },
 ];
 
 const businessTools: Array<{
@@ -252,15 +545,60 @@ const businessTools: Array<{
   href: string;
   icon: LucideIcon;
 }> = [
-  { title: "CRM", detail: "Leads, deals, tasks", href: "/modules/crm", icon: BriefcaseBusiness },
-  { title: "ERP", detail: "Operations foundation", href: "/modules/erp", icon: Database },
-  { title: "Marketplace", detail: "Seller analytics", href: "/modules/marketplace", icon: PackageSearch },
-  { title: "Internet Toolkit", detail: "Diagnostics and uptime", href: "/modules/diagnostics", icon: Globe2 },
-  { title: "Automation", detail: "Workflows and agents", href: "/modules", icon: WandSparkles },
-  { title: "Files", detail: "Recent uploads", href: "/workspace", icon: FileArchive },
-  { title: "Calendar", detail: "Planning surface", href: "/workspace", icon: CalendarDays },
-  { title: "Tasks", detail: "CRM follow-ups", href: "/modules/crm", icon: CheckSquare },
-  { title: "Notes", detail: "Business memory", href: "/workspace", icon: NotebookTabs }
+  {
+    title: "CRM",
+    detail: "Leads, deals, tasks",
+    href: "/modules/crm",
+    icon: BriefcaseBusiness,
+  },
+  {
+    title: "ERP",
+    detail: "Operations foundation",
+    href: "/modules/erp",
+    icon: Database,
+  },
+  {
+    title: "Marketplace",
+    detail: "Seller analytics",
+    href: "/modules/marketplace",
+    icon: PackageSearch,
+  },
+  {
+    title: "Internet Toolkit",
+    detail: "Diagnostics and uptime",
+    href: "/modules/diagnostics",
+    icon: Globe2,
+  },
+  {
+    title: "Automation",
+    detail: "Workflows and agents",
+    href: "/modules",
+    icon: WandSparkles,
+  },
+  {
+    title: "Files",
+    detail: "Recent uploads",
+    href: "/workspace",
+    icon: FileArchive,
+  },
+  {
+    title: "Calendar",
+    detail: "Planning surface",
+    href: "/workspace",
+    icon: CalendarDays,
+  },
+  {
+    title: "Tasks",
+    detail: "CRM follow-ups",
+    href: "/modules/crm",
+    icon: CheckSquare,
+  },
+  {
+    title: "Notes",
+    detail: "Business memory",
+    href: "/workspace",
+    icon: NotebookTabs,
+  },
 ];
 
 function getInitialRouteKey(routes: RouteOption[]) {
@@ -291,9 +629,51 @@ function formatFileSize(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function detectDefaultLanguage() {
+  if (typeof navigator === "undefined") {
+    return "English";
+  }
+
+  const browserLanguages = navigator.languages?.length
+    ? navigator.languages
+    : [navigator.language];
+  const normalizedLanguages = browserLanguages
+    .filter(Boolean)
+    .map((language) => language.toLowerCase().split("-")[0]);
+  const matchedLanguage = supportedLanguages.find((language) =>
+    language.prefixes.some((prefix) => normalizedLanguages.includes(prefix)),
+  );
+
+  return matchedLanguage?.label ?? "English";
+}
+
+function friendlyActivity(action: string) {
+  const friendlyNames: Record<string, string> = {
+    AUTH_LOGIN: "Signed in to MAGZ",
+    ASSISTANT_CHAT: "Asked MAGZ Assistant",
+    CRM_ENTITY_CREATED: "Created a CRM record",
+    CRM_ENTITY_UPDATED: "Updated CRM work",
+    CRM_LEAD_SCORED: "Scored a lead with AI",
+    MARKETPLACE_INSIGHT_GENERATED: "Generated a seller insight",
+    SETTINGS_UPDATED: "Updated workspace settings",
+  };
+
+  return friendlyNames[action] ?? "Updated workspace activity";
+}
+
+function friendlyStatus(status: string) {
+  return status
+    .toLowerCase()
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
 async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await fetch(url, options);
-  const payload = (await response.json().catch(() => ({}))) as T & { error?: string };
+  const payload = (await response.json().catch(() => ({}))) as T & {
+    error?: string;
+  };
 
   if (!response.ok) {
     throw new Error(payload.error ?? "Request failed.");
@@ -302,7 +682,11 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
   return payload;
 }
 
-export function WorkspaceClient({ initialState }: { initialState: WorkspaceInitialState }) {
+export function WorkspaceClient({
+  initialState,
+}: {
+  initialState: WorkspaceInitialState;
+}) {
   const searchParams = useSearchParams();
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
@@ -313,21 +697,40 @@ export function WorkspaceClient({ initialState }: { initialState: WorkspaceIniti
   const [isSearching, setIsSearching] = useState(false);
   const [files, setFiles] = useState<WorkspaceFile[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>(starterMessages);
-  const [conversations, setConversations] = useState(initialState.conversations);
+  const [conversations, setConversations] = useState(
+    initialState.conversations,
+  );
   const [routes, setRoutes] = useState(initialState.routes);
-  const [selectedRouteKey, setSelectedRouteKey] = useState(getInitialRouteKey(initialState.routes));
-  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+  const [selectedRouteKey, setSelectedRouteKey] = useState(
+    getInitialRouteKey(initialState.routes),
+  );
+  const [activeConversationId, setActiveConversationId] = useState<
+    string | null
+  >(null);
   const [input, setInput] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [isLoadingConversation, setIsLoadingConversation] = useState(false);
   const [dragActive, setDragActive] = useState(false);
   const [statusText, setStatusText] = useState<string | null>(null);
-  const [editingConversationId, setEditingConversationId] = useState<string | null>(null);
+  const [editingConversationId, setEditingConversationId] = useState<
+    string | null
+  >(null);
   const [editingTitle, setEditingTitle] = useState("");
+  const [activeCategory, setActiveCategory] =
+    useState<WorkspaceCategory>("AI Tools");
+  const [activeTool, setActiveTool] = useState<QuickTool | null>(null);
+  const [toolInput, setToolInput] = useState("");
+  const [toolLanguage, setToolLanguage] = useState(() =>
+    detectDefaultLanguage(),
+  );
+  const [toolTone, setToolTone] = useState("business");
+  const [toolError, setToolError] = useState<string | null>(null);
+  const [isToolRunning, setIsToolRunning] = useState(false);
 
   const selectedRoute = useMemo(
-    () => routes.find((route) => route.routeKey === selectedRouteKey) ?? routes[0],
-    [routes, selectedRouteKey]
+    () =>
+      routes.find((route) => route.routeKey === selectedRouteKey) ?? routes[0],
+    [routes, selectedRouteKey],
   );
 
   const orderedConversations = useMemo(
@@ -337,22 +740,33 @@ export function WorkspaceClient({ initialState }: { initialState: WorkspaceIniti
           return a.isPinned ? -1 : 1;
         }
 
-        return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+        return (
+          new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+        );
       }),
-    [conversations]
+    [conversations],
+  );
+
+  const filteredTools = useMemo(
+    () => quickTools.filter((tool) => tool.category === activeCategory),
+    [activeCategory],
   );
 
   const visibleMessages = useMemo(
     () => messages.filter((message) => message.role !== "system"),
-    [messages]
+    [messages],
   );
 
+  const profileName = initialState.session.name ?? "MAGZ Owner";
   const pinnedProjects = initialState.projects.slice(0, 3);
   const recentChats = conversations.slice(0, 4);
+  const pendingTasks = initialState.tasks
+    .filter((task) => task.status !== "DONE")
+    .slice(0, 3);
   const notifications = [
-    `${initialState.counts.tasks} active tasks`,
-    `${initialState.counts.chats} AI chats`,
-    `${initialState.counts.modules} modules online`
+    `${initialState.counts.tasks} tasks waiting for action`,
+    `${initialState.counts.chats} saved AI conversations`,
+    `${initialState.counts.modules} business modules active`,
   ];
 
   const refreshConversations = useCallback(async () => {
@@ -363,7 +777,10 @@ export function WorkspaceClient({ initialState }: { initialState: WorkspaceIniti
 
     setConversations(payload.conversations ?? []);
     setRoutes(payload.routes ?? []);
-    setSelectedRouteKey((currentRouteKey) => currentRouteKey || getInitialRouteKey(payload.routes ?? []));
+    setSelectedRouteKey(
+      (currentRouteKey) =>
+        currentRouteKey || getInitialRouteKey(payload.routes ?? []),
+    );
   }, []);
 
   const openConversation = useCallback(
@@ -379,24 +796,33 @@ export function WorkspaceClient({ initialState }: { initialState: WorkspaceIniti
         }>(`/api/assistant/conversations/${conversationId}`);
 
         setActiveConversationId(conversationId);
-        setMessages(payload.messages?.length ? payload.messages : starterMessages);
+        setMessages(
+          payload.messages?.length ? payload.messages : starterMessages,
+        );
         setRoutes(payload.routes ?? routes);
         if (payload.conversation?.routeKey) {
           setSelectedRouteKey(payload.conversation.routeKey);
         }
       } catch (error) {
-        setStatusText(error instanceof Error ? error.message : "Could not open conversation.");
+        setStatusText(
+          error instanceof Error
+            ? error.message
+            : "Could not open this conversation.",
+        );
       } finally {
         setIsLoadingConversation(false);
       }
     },
-    [routes]
+    [routes],
   );
 
   useEffect(() => {
     const requestedConversationId = searchParams.get("conversation");
     if (requestedConversationId) {
-      const timer = window.setTimeout(() => void openConversation(requestedConversationId), 0);
+      const timer = window.setTimeout(
+        () => void openConversation(requestedConversationId),
+        0,
+      );
       return () => window.clearTimeout(timer);
     }
 
@@ -412,7 +838,9 @@ export function WorkspaceClient({ initialState }: { initialState: WorkspaceIniti
     function onKeyDown(event: KeyboardEvent) {
       const target = event.target as HTMLElement | null;
       const isTyping =
-        target?.tagName === "INPUT" || target?.tagName === "TEXTAREA" || target?.tagName === "SELECT";
+        target?.tagName === "INPUT" ||
+        target?.tagName === "TEXTAREA" ||
+        target?.tagName === "SELECT";
 
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
@@ -442,7 +870,7 @@ export function WorkspaceClient({ initialState }: { initialState: WorkspaceIniti
       try {
         const payload = await fetchJson<{ results: SearchResult[] }>(
           `/api/workspace/search?q=${encodeURIComponent(trimmedQuery)}`,
-          { signal: controller.signal }
+          { signal: controller.signal },
         );
         setSearchResults(payload.results);
       } catch {
@@ -469,11 +897,6 @@ export function WorkspaceClient({ initialState }: { initialState: WorkspaceIniti
     inputRef.current?.focus();
   }
 
-  function selectTool(prompt: string) {
-    setInput(prompt);
-    inputRef.current?.focus();
-  }
-
   function addFiles(fileList: FileList | File[]) {
     const acceptedFiles = Array.from(fileList).map((file) => {
       const extension = file.name.split(".").pop()?.toLowerCase() ?? "file";
@@ -484,12 +907,16 @@ export function WorkspaceClient({ initialState }: { initialState: WorkspaceIniti
         size: file.size,
         type: file.type || "application/octet-stream",
         extension,
-        addedAt: new Date().toISOString()
+        addedAt: new Date().toISOString(),
       };
     });
 
-    setFiles((currentFiles) => [...acceptedFiles, ...currentFiles].slice(0, 12));
-    setStatusText(`${acceptedFiles.length} file${acceptedFiles.length === 1 ? "" : "s"} attached to Workspace.`);
+    setFiles((currentFiles) =>
+      [...acceptedFiles, ...currentFiles].slice(0, 12),
+    );
+    setStatusText(
+      `${acceptedFiles.length} file${acceptedFiles.length === 1 ? "" : "s"} ready for MAGZ.`,
+    );
   }
 
   function onDrop(event: DragEvent<HTMLDivElement>) {
@@ -501,9 +928,31 @@ export function WorkspaceClient({ initialState }: { initialState: WorkspaceIniti
     }
   }
 
+  function openTool(tool: QuickTool) {
+    setActiveTool(tool);
+    setToolInput("");
+    setToolTone(tool.defaultTone ?? tool.tones?.[0] ?? "business");
+    setToolError(null);
+  }
+
+  function attachedFileContext() {
+    if (!files.length) {
+      return "";
+    }
+
+    return `\n\nAttached files in Workspace:\n${files
+      .map(
+        (file) =>
+          `- ${file.name} (${file.extension}, ${formatFileSize(file.size)})`,
+      )
+      .join("\n")}`;
+  }
+
   async function updateConversation(
     conversationId: string,
-    patch: Partial<Pick<ConversationSummary, "title" | "isPinned" | "isFavorite">>
+    patch: Partial<
+      Pick<ConversationSummary, "title" | "isPinned" | "isFavorite">
+    >,
   ) {
     try {
       const payload = await fetchJson<{ conversation: ConversationSummary }>(
@@ -511,37 +960,138 @@ export function WorkspaceClient({ initialState }: { initialState: WorkspaceIniti
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(patch)
-        }
+          body: JSON.stringify(patch),
+        },
       );
 
       setConversations((currentConversations) =>
         currentConversations.map((conversation) =>
-          conversation.id === conversationId ? payload.conversation : conversation
-        )
+          conversation.id === conversationId
+            ? payload.conversation
+            : conversation,
+        ),
       );
       setEditingConversationId(null);
       setEditingTitle("");
     } catch (error) {
-      setStatusText(error instanceof Error ? error.message : "Conversation could not be updated.");
+      setStatusText(
+        error instanceof Error
+          ? error.message
+          : "Conversation could not be updated.",
+      );
     }
   }
 
   async function deleteConversation(conversationId: string) {
     try {
-      await fetchJson<{ ok: boolean }>(`/api/assistant/conversations/${conversationId}`, {
-        method: "DELETE"
-      });
+      await fetchJson<{ ok: boolean }>(
+        `/api/assistant/conversations/${conversationId}`,
+        {
+          method: "DELETE",
+        },
+      );
 
       setConversations((currentConversations) =>
-        currentConversations.filter((conversation) => conversation.id !== conversationId)
+        currentConversations.filter(
+          (conversation) => conversation.id !== conversationId,
+        ),
       );
 
       if (activeConversationId === conversationId) {
         startNewConversation();
       }
     } catch (error) {
-      setStatusText(error instanceof Error ? error.message : "Conversation could not be deleted.");
+      setStatusText(
+        error instanceof Error
+          ? error.message
+          : "Conversation could not be deleted.",
+      );
+    }
+  }
+
+  async function sendAssistantRequest(
+    messageContent: string,
+    options?: {
+      toolType?: string;
+      toolTitle?: string;
+      forceNewConversation?: boolean;
+    },
+  ) {
+    if (isSending) {
+      return;
+    }
+
+    const messageWithFiles = `${messageContent}${attachedFileContext()}`;
+    const localMessage: ChatMessage = {
+      id: `local-${Date.now()}`,
+      role: "user",
+      content: messageWithFiles,
+    };
+
+    setMessages((currentMessages) =>
+      options?.forceNewConversation
+        ? [localMessage]
+        : [...currentMessages, localMessage],
+    );
+    setStatusText(null);
+    setIsSending(true);
+
+    try {
+      const payload = await fetchJson<{
+        conversation: {
+          id: string;
+          title: string;
+          provider: string;
+          model: string;
+          routeKey: string;
+          routeLabel: string;
+          toolType?: string | null;
+          isPinned: boolean;
+          isFavorite: boolean;
+        };
+        route: RouteOption;
+        messages: ChatMessage[];
+        usage: { totalTokens: number };
+      }>("/api/assistant/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: messageWithFiles,
+          conversationId: options?.forceNewConversation
+            ? null
+            : activeConversationId,
+          routeKey: selectedRouteKey || undefined,
+          toolType: options?.toolType,
+          toolTitle: options?.toolTitle,
+        }),
+      });
+
+      setActiveConversationId(payload.conversation.id);
+      setMessages((currentMessages) =>
+        options?.forceNewConversation
+          ? payload.messages
+          : [
+              ...currentMessages.filter(
+                (message) => message.id !== localMessage.id,
+              ),
+              ...payload.messages,
+            ],
+      );
+      setSelectedRouteKey(payload.route.routeKey);
+      setStatusText(
+        `${payload.route.label} replied with ${payload.usage.totalTokens} estimated tokens.`,
+      );
+      await refreshConversations();
+    } catch (error) {
+      setMessages((currentMessages) =>
+        currentMessages.filter((message) => message.id !== localMessage.id),
+      );
+      setStatusText(
+        error instanceof Error ? error.message : "Assistant request failed.",
+      );
+      throw error;
+    } finally {
+      setIsSending(false);
     }
   }
 
@@ -553,65 +1103,62 @@ export function WorkspaceClient({ initialState }: { initialState: WorkspaceIniti
       return;
     }
 
-    const fileContext = files.length
-      ? `\n\nAttached files in Workspace:\n${files
-          .map((file) => `- ${file.name} (${file.extension}, ${formatFileSize(file.size)})`)
-          .join("\n")}`
-      : "";
-    const messageContent = `${prompt || "Analyze the attached files and suggest next actions."}${fileContext}`;
-    const localMessage: ChatMessage = {
-      id: `local-${Date.now()}`,
-      role: "user",
-      content: messageContent
-    };
+    const messageContent =
+      prompt || "Analyze the attached files and suggest next actions.";
 
-    setMessages((currentMessages) => [...currentMessages, localMessage]);
     setInput("");
-    setStatusText(null);
-    setIsSending(true);
 
     try {
-      const payload = await fetchJson<{
-        conversation: {
-          id: string;
-          title: string;
-          routeKey: string;
-          routeLabel: string;
-          isPinned: boolean;
-          isFavorite: boolean;
-        };
-        route: RouteOption;
-        messages: ChatMessage[];
-        usage: { totalTokens: number };
-      }>("/api/assistant/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: messageContent,
-          conversationId: activeConversationId,
-          routeKey: selectedRouteKey || undefined
-        })
-      });
+      await sendAssistantRequest(messageContent);
+    } catch {
+      setInput(prompt);
+    }
+  }
 
-      setActiveConversationId(payload.conversation.id);
-      setMessages((currentMessages) => [
-        ...currentMessages.filter((message) => message.id !== localMessage.id),
-        ...payload.messages
-      ]);
-      setSelectedRouteKey(payload.route.routeKey);
-      setStatusText(`${payload.route.label} replied with ${payload.usage.totalTokens} estimated tokens.`);
-      await refreshConversations();
+  async function submitTool(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!activeTool || isToolRunning || isSending) {
+      return;
+    }
+
+    const trimmedInput = toolInput.trim();
+
+    if (!trimmedInput) {
+      setToolError("Add the details MAGZ should work with.");
+      return;
+    }
+
+    setToolError(null);
+    setIsToolRunning(true);
+
+    try {
+      const prompt = activeTool.buildPrompt(
+        trimmedInput,
+        toolLanguage,
+        activeTool.tones ? toolTone : undefined,
+      );
+      await sendAssistantRequest(prompt, {
+        toolType: activeTool.id,
+        toolTitle: activeTool.title,
+        forceNewConversation: true,
+      });
+      setActiveTool(null);
+      setToolInput("");
     } catch (error) {
-      setMessages((currentMessages) => currentMessages.filter((message) => message.id !== localMessage.id));
-      setStatusText(error instanceof Error ? error.message : "Assistant request failed.");
+      setToolError(
+        error instanceof Error
+          ? error.message
+          : "MAGZ could not run this tool.",
+      );
     } finally {
-      setIsSending(false);
+      setIsToolRunning(false);
     }
   }
 
   return (
     <div className="space-y-5">
-      <section className="grid gap-4 xl:grid-cols-[1fr_340px]">
+      <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
         <Surface className="overflow-hidden p-5">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
             <div className="min-w-0">
@@ -619,27 +1166,85 @@ export function WorkspaceClient({ initialState }: { initialState: WorkspaceIniti
                 Workspace
               </p>
               <h1 className="mt-3 text-3xl font-semibold tracking-normal md:text-4xl">
-                Welcome, {initialState.session.name ?? initialState.session.email}
+                Welcome back, {profileName}
               </h1>
-              <p className="mt-2 text-sm text-[color:var(--muted)]">
-                {initialState.organization.name} - {initialState.session.role.toLowerCase()} workspace
+              <p className="mt-2 text-lg text-[color:var(--muted)]">
+                What do you want to solve today?
               </p>
+              <div className="mt-4 flex flex-wrap gap-2 text-xs font-semibold text-[color:var(--muted)]">
+                <span className="rounded-full border border-[color:var(--line)] bg-[color:var(--panel-soft)] px-3 py-1.5">
+                  {initialState.organization.name}
+                </span>
+                <span className="rounded-full border border-[color:var(--line)] bg-[color:var(--panel-soft)] px-3 py-1.5">
+                  {initialState.session.role.toLowerCase()} workspace
+                </span>
+              </div>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-3 lg:min-w-[420px]">
-              <TopStat label="Time" value={clock.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} />
-              <TopStat label="Chats" value={String(initialState.counts.chats)} />
-              <TopStat label="Tasks" value={String(initialState.counts.tasks)} />
+            <div className="w-full rounded-lg border border-[color:var(--line)] bg-[color:var(--panel-soft)] p-4 text-left lg:w-52">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[color:var(--muted)]">
+                Local time
+              </p>
+              <p className="mt-2 text-2xl font-semibold">
+                {clock.toLocaleTimeString([], {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+              </p>
+              <p className="mt-1 text-sm text-[color:var(--muted)]">
+                {clock.toLocaleDateString([], {
+                  weekday: "short",
+                  month: "short",
+                  day: "numeric",
+                })}
+              </p>
             </div>
           </div>
 
-          <div className="relative mt-5">
+          <form className="mt-6" onSubmit={(event) => void submit(event)}>
+            <div className="flex flex-col gap-3 rounded-lg border border-cyan-400/25 bg-gradient-to-r from-cyan-400/10 to-violet-500/10 p-3 md:flex-row">
+              <textarea
+                ref={inputRef}
+                value={input}
+                onChange={(event) => setInput(event.target.value)}
+                onKeyDown={(event) => {
+                  if (
+                    (event.ctrlKey || event.metaKey) &&
+                    event.key === "Enter"
+                  ) {
+                    void submit();
+                  }
+                }}
+                rows={2}
+                placeholder="Ask MAGZ anything..."
+                className="min-h-14 flex-1 resize-none border-0 bg-transparent px-1 py-2 text-base outline-none placeholder:text-[color:var(--muted)]"
+              />
+              <button
+                type="submit"
+                title="Send message"
+                disabled={isSending}
+                className={buttonVariants({
+                  size: "icon",
+                  className: "size-12 self-end md:self-center",
+                })}
+              >
+                {isSending ? (
+                  <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                ) : (
+                  <Send className="size-4" />
+                )}
+                <span className="sr-only">Send message</span>
+              </button>
+            </div>
+          </form>
+
+          <div className="relative mt-4">
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[color:var(--muted)]" />
             <input
               ref={searchRef}
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search chats, CRM, ERP, marketplace, files, contacts, companies, and tasks"
+              placeholder="Search everything: chats, CRM, ERP, marketplace, files, contacts, companies, and tasks"
               className="h-12 w-full rounded-lg border border-[color:var(--line)] bg-[color:var(--panel-soft)] px-10 text-sm outline-none transition focus:border-cyan-400"
             />
             {query ? (
@@ -659,11 +1264,14 @@ export function WorkspaceClient({ initialState }: { initialState: WorkspaceIniti
               {isSearching ? (
                 <div className="flex items-center gap-2 p-3 text-sm text-[color:var(--muted)]">
                   <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-                  Searching
+                  Searching Workspace
                 </div>
               ) : null}
               {!isSearching && searchResults.length === 0 ? (
-                <p className="p-3 text-sm text-[color:var(--muted)]">No matching workspace records.</p>
+                <p className="p-3 text-sm text-[color:var(--muted)]">
+                  Nothing matched yet. Try a company, contact, task, module, or
+                  chat title.
+                </p>
               ) : null}
               {searchResults.map((item) => (
                 <Link
@@ -672,12 +1280,17 @@ export function WorkspaceClient({ initialState }: { initialState: WorkspaceIniti
                   className="flex items-center justify-between gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-cyan-400/10"
                 >
                   <span className="min-w-0">
-                    <span className="block truncate font-semibold">{item.title}</span>
+                    <span className="block truncate font-semibold">
+                      {item.title}
+                    </span>
                     <span className="mt-1 block truncate text-xs text-[color:var(--muted)]">
                       {item.type} - {item.detail}
                     </span>
                   </span>
-                  <ChevronRight className="size-4 shrink-0 text-[color:var(--muted)]" aria-hidden="true" />
+                  <ChevronRight
+                    className="size-4 shrink-0 text-[color:var(--muted)]"
+                    aria-hidden="true"
+                  />
                 </Link>
               ))}
             </div>
@@ -690,7 +1303,9 @@ export function WorkspaceClient({ initialState }: { initialState: WorkspaceIniti
               <IconTile icon={Bell} className="size-10" />
               <div>
                 <h2 className="font-semibold">Notifications</h2>
-                <p className="text-sm text-[color:var(--muted)]">Live operating signals</p>
+                <p className="text-sm text-[color:var(--muted)]">
+                  Things worth checking
+                </p>
               </div>
             </div>
             <div className="mt-4 space-y-2">
@@ -710,53 +1325,101 @@ export function WorkspaceClient({ initialState }: { initialState: WorkspaceIniti
             <div className="mt-4 space-y-3">
               {initialState.activities.length ? (
                 initialState.activities.map((activity) => (
-                  <div key={activity.id} className="text-sm">
-                    <p className="font-medium">{activity.action.replaceAll("_", " ")}</p>
+                  <div
+                    key={activity.id}
+                    className="rounded-lg border border-[color:var(--line)] bg-[color:var(--panel-soft)] p-3 text-sm"
+                  >
+                    <p className="font-medium">
+                      {friendlyActivity(activity.action)}
+                    </p>
                     <p className="mt-1 text-xs text-[color:var(--muted)]">
                       {activity.actor} - {formatDateTime(activity.createdAt)}
                     </p>
                   </div>
                 ))
               ) : (
-                <p className="text-sm text-[color:var(--muted)]">No activity yet.</p>
+                <p className="rounded-lg border border-dashed border-[color:var(--line)] p-3 text-sm text-[color:var(--muted)]">
+                  Your team activity will appear here after people start using
+                  MAGZ.
+                </p>
               )}
             </div>
           </Surface>
         </div>
       </section>
 
-      <section className="grid gap-5 2xl:grid-cols-[260px_minmax(0,1fr)_260px]">
-        <aside className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:block 2xl:space-y-3">
-          {quickTools.map((tool) => {
-            const Icon = tool.icon;
+      <section className="grid gap-5 2xl:grid-cols-[280px_minmax(0,1fr)_280px]">
+        <aside className="space-y-3">
+          <Surface className="p-3">
+            <div className="mb-3 px-1">
+              <h2 className="font-semibold">Quick AI Tools</h2>
+              <p className="mt-1 text-sm text-[color:var(--muted)]">
+                Start with a focused workflow.
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-2 2xl:grid-cols-1">
+              {workspaceCategories.map((category) => (
+                <button
+                  key={category}
+                  type="button"
+                  className={cn(
+                    "min-h-10 rounded-lg border px-3 text-sm font-semibold transition",
+                    activeCategory === category
+                      ? "border-cyan-300/40 bg-cyan-400/15 text-[color:var(--foreground)]"
+                      : "border-[color:var(--line)] bg-[color:var(--panel-soft)] text-[color:var(--muted)] hover:border-cyan-400/40 hover:text-[color:var(--foreground)]",
+                  )}
+                  onClick={() => setActiveCategory(category)}
+                >
+                  {category}
+                </button>
+              ))}
+            </div>
+          </Surface>
 
-            return (
-              <button
-                key={tool.title}
-                type="button"
-                className="group rounded-lg border border-[color:var(--line)] bg-[color:var(--panel)] p-4 text-left shadow-[var(--shadow-soft)] transition hover:border-cyan-400/50 hover:bg-cyan-400/10"
-                onClick={() => selectTool(tool.prompt)}
-              >
-                <Icon className="size-5 text-cyan-500 transition group-hover:scale-105" aria-hidden="true" />
-                <p className="mt-3 text-sm font-semibold">{tool.title}</p>
-                <p className="mt-1 text-xs leading-5 text-[color:var(--muted)]">{tool.detail}</p>
-              </button>
-            );
-          })}
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-1">
+            {filteredTools.map((tool) => {
+              const Icon = tool.icon;
+
+              return (
+                <button
+                  key={tool.id}
+                  type="button"
+                  className="group min-h-36 rounded-lg border border-[color:var(--line)] bg-[color:var(--panel)] p-4 text-left shadow-[var(--shadow-soft)] transition hover:-translate-y-0.5 hover:border-cyan-400/50 hover:bg-cyan-400/10 focus:outline-none focus:ring-2 focus:ring-cyan-400/50"
+                  onClick={() => openTool(tool)}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <IconTile icon={Icon} className="size-10" />
+                    <span className="rounded-full border border-cyan-400/20 px-2 py-1 text-[11px] font-semibold text-cyan-700 opacity-80 transition group-hover:opacity-100 dark:text-cyan-200">
+                      Open
+                    </span>
+                  </div>
+                  <p className="mt-3 text-sm font-semibold">{tool.title}</p>
+                  <p className="mt-1 text-xs leading-5 text-[color:var(--muted)]">
+                    {tool.detail}
+                  </p>
+                </button>
+              );
+            })}
+          </div>
         </aside>
 
         <Surface className="min-h-[720px] overflow-hidden">
-          <div className="grid h-full lg:grid-cols-[260px_minmax(0,1fr)]">
-            <aside className="border-b border-[color:var(--line)] lg:border-b-0 lg:border-r">
+          <div className="grid h-full xl:grid-cols-[270px_minmax(0,1fr)]">
+            <aside className="border-b border-[color:var(--line)] xl:border-b-0 xl:border-r">
               <div className="flex items-center justify-between border-b border-[color:var(--line)] p-4">
                 <div>
                   <h2 className="font-semibold">AI Chats</h2>
-                  <p className="text-xs text-[color:var(--muted)]">{conversations.length} conversations</p>
+                  <p className="text-xs text-[color:var(--muted)]">
+                    {conversations.length} saved conversations
+                  </p>
                 </div>
                 <button
                   type="button"
                   title="New conversation"
-                  className={buttonVariants({ variant: "secondary", size: "icon" })}
+                  className={buttonVariants({
+                    variant: "secondary",
+                    size: "icon",
+                  })}
                   onClick={startNewConversation}
                 >
                   <Plus className="size-4" aria-hidden="true" />
@@ -769,19 +1432,24 @@ export function WorkspaceClient({ initialState }: { initialState: WorkspaceIniti
                     key={conversation.id}
                     className={cn(
                       "rounded-lg border border-[color:var(--line)] bg-[color:var(--panel-soft)] p-2",
-                      activeConversationId === conversation.id && "border-cyan-400/50 bg-cyan-400/10"
+                      activeConversationId === conversation.id &&
+                        "border-cyan-400/50 bg-cyan-400/10",
                     )}
                   >
                     {editingConversationId === conversation.id ? (
                       <form
                         onSubmit={(event) => {
                           event.preventDefault();
-                          void updateConversation(conversation.id, { title: editingTitle });
+                          void updateConversation(conversation.id, {
+                            title: editingTitle,
+                          });
                         }}
                       >
                         <input
                           value={editingTitle}
-                          onChange={(event) => setEditingTitle(event.target.value)}
+                          onChange={(event) =>
+                            setEditingTitle(event.target.value)
+                          }
                           className="h-9 w-full rounded-lg border border-[color:var(--line)] bg-[color:var(--panel)] px-2 text-sm outline-none focus:border-cyan-400"
                         />
                       </form>
@@ -791,9 +1459,14 @@ export function WorkspaceClient({ initialState }: { initialState: WorkspaceIniti
                         className="block w-full rounded-md px-2 py-2 text-left transition hover:bg-white/10"
                         onClick={() => void openConversation(conversation.id)}
                       >
-                        <span className="line-clamp-1 text-sm font-semibold">{conversation.title}</span>
+                        <span className="line-clamp-1 text-sm font-semibold">
+                          {conversation.title}
+                        </span>
                         <span className="mt-1 line-clamp-2 text-xs leading-5 text-[color:var(--muted)]">
-                          {conversation.lastMessage?.content ?? conversation.routeLabel ?? conversation.providerName}
+                          {conversation.toolType ? "Quick tool - " : ""}
+                          {conversation.lastMessage?.content ??
+                            conversation.routeLabel ??
+                            conversation.providerName}
                         </span>
                       </button>
                     )}
@@ -813,17 +1486,29 @@ export function WorkspaceClient({ initialState }: { initialState: WorkspaceIniti
                       <button
                         type="button"
                         title="Pin conversation"
-                        className={cn(miniButtonClass, conversation.isPinned && "text-cyan-500")}
-                        onClick={() => void updateConversation(conversation.id, { isPinned: !conversation.isPinned })}
+                        className={cn(
+                          miniButtonClass,
+                          conversation.isPinned && "text-cyan-500",
+                        )}
+                        onClick={() =>
+                          void updateConversation(conversation.id, {
+                            isPinned: !conversation.isPinned,
+                          })
+                        }
                       >
                         <Pin className="size-3" aria-hidden="true" />
                       </button>
                       <button
                         type="button"
                         title="Favorite conversation"
-                        className={cn(miniButtonClass, conversation.isFavorite && "text-violet-500")}
+                        className={cn(
+                          miniButtonClass,
+                          conversation.isFavorite && "text-violet-500",
+                        )}
                         onClick={() =>
-                          void updateConversation(conversation.id, { isFavorite: !conversation.isFavorite })
+                          void updateConversation(conversation.id, {
+                            isFavorite: !conversation.isFavorite,
+                          })
                         }
                       >
                         <Heart className="size-3" aria-hidden="true" />
@@ -831,7 +1516,10 @@ export function WorkspaceClient({ initialState }: { initialState: WorkspaceIniti
                       <button
                         type="button"
                         title="Delete conversation"
-                        className={cn(miniButtonClass, "ml-auto hover:text-red-500")}
+                        className={cn(
+                          miniButtonClass,
+                          "ml-auto hover:text-red-500",
+                        )}
                         onClick={() => void deleteConversation(conversation.id)}
                       >
                         <Trash2 className="size-3" aria-hidden="true" />
@@ -841,8 +1529,9 @@ export function WorkspaceClient({ initialState }: { initialState: WorkspaceIniti
                 ))}
 
                 {!orderedConversations.length ? (
-                  <p className="p-3 text-sm leading-6 text-[color:var(--muted)]">
-                    Send a message to create the first Workspace conversation.
+                  <p className="rounded-lg border border-dashed border-[color:var(--line)] p-3 text-sm leading-6 text-[color:var(--muted)]">
+                    Your conversations will appear here after you ask MAGZ or
+                    run a quick tool.
                   </p>
                 ) : null}
               </div>
@@ -853,11 +1542,11 @@ export function WorkspaceClient({ initialState }: { initialState: WorkspaceIniti
                 <div className="flex items-center gap-3">
                   <IconTile icon={Bot} className="size-10" />
                   <div>
-                    <h2 className="font-semibold">MAGZ AI</h2>
+                    <h2 className="font-semibold">MAGZ Assistant</h2>
                     <p className="text-sm text-[color:var(--muted)]">
                       {selectedRoute
                         ? `${selectedRoute.providerName} / ${selectedRoute.model}`
-                        : "Provider route ready"}
+                        : "AI router ready"}
                     </p>
                   </div>
                 </div>
@@ -878,7 +1567,7 @@ export function WorkspaceClient({ initialState }: { initialState: WorkspaceIniti
               <div
                 className={cn(
                   "m-4 rounded-lg border border-dashed border-[color:var(--line)] bg-[color:var(--panel-soft)] p-4 transition",
-                  dragActive && "border-cyan-400 bg-cyan-400/10"
+                  dragActive && "border-cyan-400 bg-cyan-400/10",
                 )}
                 onDragEnter={(event) => {
                   event.preventDefault();
@@ -890,10 +1579,17 @@ export function WorkspaceClient({ initialState }: { initialState: WorkspaceIniti
               >
                 <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                   <div className="flex items-center gap-3">
-                    <UploadCloud className="size-5 text-cyan-500" aria-hidden="true" />
+                    <UploadCloud
+                      className="size-5 text-cyan-500"
+                      aria-hidden="true"
+                    />
                     <div>
-                      <p className="text-sm font-semibold">Upload PDF, DOCX, Excel, or image</p>
-                      <p className="text-xs text-[color:var(--muted)]">Drag files here or attach them to the next AI request.</p>
+                      <p className="text-sm font-semibold">
+                        Upload PDF, DOCX, Excel, or image
+                      </p>
+                      <p className="text-xs text-[color:var(--muted)]">
+                        Drag files here or attach them to the next MAGZ request.
+                      </p>
                     </div>
                   </div>
                   <input
@@ -909,7 +1605,11 @@ export function WorkspaceClient({ initialState }: { initialState: WorkspaceIniti
                       }
                     }}
                   />
-                  <Button type="button" variant="secondary" onClick={() => fileInputRef.current?.click()}>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={() => fileInputRef.current?.click()}
+                  >
                     <Paperclip className="size-4" aria-hidden="true" />
                     Attach files
                   </Button>
@@ -923,15 +1623,24 @@ export function WorkspaceClient({ initialState }: { initialState: WorkspaceIniti
                       return (
                         <span
                           key={file.id}
-                          className="inline-flex min-h-9 items-center gap-2 rounded-lg border border-[color:var(--line)] bg-[color:var(--panel)] px-3 text-xs"
+                          className="inline-flex min-h-9 max-w-full items-center gap-2 rounded-lg border border-[color:var(--line)] bg-[color:var(--panel)] px-3 text-xs"
                         >
-                          <FileIcon className="size-3 text-cyan-500" aria-hidden="true" />
-                          {file.name}
+                          <FileIcon
+                            className="size-3 shrink-0 text-cyan-500"
+                            aria-hidden="true"
+                          />
+                          <span className="truncate">{file.name}</span>
                           <button
                             type="button"
                             title="Remove file"
-                            className="text-[color:var(--muted)] hover:text-[color:var(--foreground)]"
-                            onClick={() => setFiles((currentFiles) => currentFiles.filter((item) => item.id !== file.id))}
+                            className="shrink-0 text-[color:var(--muted)] hover:text-[color:var(--foreground)]"
+                            onClick={() =>
+                              setFiles((currentFiles) =>
+                                currentFiles.filter(
+                                  (item) => item.id !== file.id,
+                                ),
+                              )
+                            }
                           >
                             <X className="size-3" aria-hidden="true" />
                           </button>
@@ -945,18 +1654,27 @@ export function WorkspaceClient({ initialState }: { initialState: WorkspaceIniti
               <div className="flex-1 space-y-4 overflow-y-auto px-4 pb-4">
                 {isLoadingConversation ? (
                   <div className="flex items-center gap-2 text-sm text-[color:var(--muted)]">
-                    <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-                    Loading conversation
+                    <Loader2
+                      className="size-4 animate-spin"
+                      aria-hidden="true"
+                    />
+                    Opening conversation
                   </div>
                 ) : null}
                 {visibleMessages.map((message) => (
-                  <div key={message.id} className={cn("flex", message.role === "user" ? "justify-end" : "justify-start")}>
+                  <div
+                    key={message.id}
+                    className={cn(
+                      "flex",
+                      message.role === "user" ? "justify-end" : "justify-start",
+                    )}
+                  >
                     <div
                       className={cn(
-                        "max-w-[90%] rounded-lg border px-4 py-3 text-sm leading-6",
+                        "max-w-[92%] rounded-lg border px-4 py-3 text-sm leading-6",
                         message.role === "user"
                           ? "border-cyan-400/30 bg-gradient-to-r from-cyan-500 to-violet-500 text-white shadow-lg shadow-cyan-500/15"
-                          : "border-[color:var(--line)] bg-[color:var(--panel-soft)]"
+                          : "border-[color:var(--line)] bg-[color:var(--panel-soft)]",
                       )}
                     >
                       <p className="whitespace-pre-wrap">{message.content}</p>
@@ -965,82 +1683,130 @@ export function WorkspaceClient({ initialState }: { initialState: WorkspaceIniti
                 ))}
                 {isSending ? (
                   <div className="flex items-center gap-2 text-sm text-[color:var(--muted)]">
-                    <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                    <Loader2
+                      className="size-4 animate-spin"
+                      aria-hidden="true"
+                    />
                     Routing through {selectedRoute?.label ?? "MAGZ AI Router"}
                   </div>
                 ) : null}
               </div>
 
-              <form className="border-t border-[color:var(--line)] p-4" onSubmit={(event) => void submit(event)}>
+              <form
+                className="border-t border-[color:var(--line)] p-4"
+                onSubmit={(event) => void submit(event)}
+              >
                 <div className="flex gap-3">
                   <textarea
                     ref={inputRef}
                     value={input}
                     onChange={(event) => setInput(event.target.value)}
                     onKeyDown={(event) => {
-                      if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+                      if (
+                        (event.ctrlKey || event.metaKey) &&
+                        event.key === "Enter"
+                      ) {
                         void submit();
                       }
                     }}
                     rows={2}
-                    placeholder="Ask MAGZ to write, summarize, translate, analyze, plan, or automate."
+                    placeholder="Ask MAGZ anything..."
                     className="min-h-12 flex-1 resize-none rounded-lg border border-[color:var(--line)] bg-[color:var(--panel-soft)] px-3 py-3 text-sm outline-none transition focus:border-cyan-400"
                   />
                   <button
                     type="submit"
                     title="Send message"
                     disabled={isSending}
-                    className={buttonVariants({ size: "icon", className: "size-12" })}
+                    className={buttonVariants({
+                      size: "icon",
+                      className: "size-12",
+                    })}
                   >
-                    {isSending ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <Send className="size-4" />}
+                    {isSending ? (
+                      <Loader2
+                        className="size-4 animate-spin"
+                        aria-hidden="true"
+                      />
+                    ) : (
+                      <Send className="size-4" />
+                    )}
                     <span className="sr-only">Send message</span>
                   </button>
                 </div>
-                <p className="mt-3 min-h-5 text-xs text-[color:var(--muted)]">{statusText}</p>
+                <p className="mt-3 min-h-5 text-xs text-[color:var(--muted)]">
+                  {statusText}
+                </p>
               </form>
             </div>
           </div>
         </Surface>
 
-        <aside className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:block 2xl:space-y-3">
-          {businessTools.map((tool) => {
-            const Icon = tool.icon;
+        <aside className="space-y-3">
+          <Surface className="p-4">
+            <h2 className="font-semibold">Business Tools</h2>
+            <p className="mt-1 text-sm text-[color:var(--muted)]">
+              Jump into an operating module.
+            </p>
+          </Surface>
 
-            return (
-              <Link
-                key={tool.title}
-                href={tool.href}
-                className="group rounded-lg border border-[color:var(--line)] bg-[color:var(--panel)] p-4 shadow-[var(--shadow-soft)] transition hover:border-cyan-400/50 hover:bg-cyan-400/10"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <Icon className="size-5 text-cyan-500 transition group-hover:scale-105" aria-hidden="true" />
-                  <ChevronRight className="size-4 text-[color:var(--muted)]" aria-hidden="true" />
-                </div>
-                <p className="mt-3 text-sm font-semibold">{tool.title}</p>
-                <p className="mt-1 text-xs leading-5 text-[color:var(--muted)]">{tool.detail}</p>
-              </Link>
-            );
-          })}
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-1">
+            {businessTools.map((tool) => {
+              const Icon = tool.icon;
+
+              return (
+                <Link
+                  key={tool.title}
+                  href={tool.href}
+                  className="group rounded-lg border border-[color:var(--line)] bg-[color:var(--panel)] p-4 shadow-[var(--shadow-soft)] transition hover:border-cyan-400/50 hover:bg-cyan-400/10"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <Icon
+                      className="size-5 text-cyan-500 transition group-hover:scale-105"
+                      aria-hidden="true"
+                    />
+                    <ChevronRight
+                      className="size-4 text-[color:var(--muted)]"
+                      aria-hidden="true"
+                    />
+                  </div>
+                  <p className="mt-3 text-sm font-semibold">{tool.title}</p>
+                  <p className="mt-1 text-xs leading-5 text-[color:var(--muted)]">
+                    {tool.detail}
+                  </p>
+                </Link>
+              );
+            })}
+          </div>
         </aside>
       </section>
 
       <section className="grid gap-5 lg:grid-cols-3">
-        <BottomPanel title="Recent files" emptyText="Upload files in Workspace to see them here.">
+        <BottomPanel
+          title="Recent files"
+          emptyText="Attach a PDF, DOCX, Excel file, or image to see it here."
+        >
           {files.slice(0, 5).map((file) => {
             const FileIcon = fileIcon(file.extension);
             return (
               <div key={file.id} className={bottomRowClass}>
                 <FileIcon className="size-4 text-cyan-500" aria-hidden="true" />
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-semibold">{file.name}</span>
-                  <span className="text-xs text-[color:var(--muted)]">{formatFileSize(file.size)}</span>
+                  <span className="block truncate text-sm font-semibold">
+                    {file.name}
+                  </span>
+                  <span className="text-xs text-[color:var(--muted)]">
+                    {formatFileSize(file.size)}
+                  </span>
                 </span>
               </div>
             );
           })}
         </BottomPanel>
 
-        <BottomPanel title="Recent AI chats" emptyText="Recent conversations will appear after your first chat.">
+        <BottomPanel
+          title="Recent AI chats"
+          emptyText="Ask MAGZ a question or run a quick tool to create your first chat."
+        >
           {recentChats.map((conversation) => (
             <button
               key={conversation.id}
@@ -1050,27 +1816,195 @@ export function WorkspaceClient({ initialState }: { initialState: WorkspaceIniti
             >
               <Bot className="size-4 text-cyan-500" aria-hidden="true" />
               <span className="min-w-0 flex-1 text-left">
-                <span className="block truncate text-sm font-semibold">{conversation.title}</span>
-                <span className="text-xs text-[color:var(--muted)]">{formatDateTime(conversation.updatedAt)}</span>
+                <span className="block truncate text-sm font-semibold">
+                  {conversation.title}
+                </span>
+                <span className="text-xs text-[color:var(--muted)]">
+                  {formatDateTime(conversation.updatedAt)}
+                </span>
               </span>
             </button>
           ))}
         </BottomPanel>
 
-        <BottomPanel title="Pinned projects" emptyText="Projects will appear after seeding or creating workspaces.">
+        <BottomPanel
+          title="Pinned projects"
+          emptyText="Pinned projects will appear after your team creates them."
+        >
           {pinnedProjects.map((project) => (
             <Link key={project.id} href="/modules" className={bottomRowClass}>
-              <FolderKanban className="size-4 text-cyan-500" aria-hidden="true" />
+              <FolderKanban
+                className="size-4 text-cyan-500"
+                aria-hidden="true"
+              />
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-semibold">{project.name}</span>
+                <span className="block truncate text-sm font-semibold">
+                  {project.name}
+                </span>
                 <span className="text-xs text-[color:var(--muted)]">
-                  {project.key} - {project.status}
+                  {project.key} - {friendlyStatus(project.status)}
                 </span>
               </span>
             </Link>
           ))}
         </BottomPanel>
       </section>
+
+      <Surface className="p-5">
+        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+          <div>
+            <h2 className="font-semibold">Today</h2>
+            <p className="mt-1 text-sm text-[color:var(--muted)]">
+              The next useful work items from your CRM and Workspace.
+            </p>
+          </div>
+          <Link
+            className={buttonVariants({ variant: "secondary", size: "sm" })}
+            href="/modules/crm"
+          >
+            Open tasks
+          </Link>
+        </div>
+        <div className="mt-4 grid gap-3 md:grid-cols-3">
+          {pendingTasks.length ? (
+            pendingTasks.map((task) => (
+              <div
+                key={task.id}
+                className="rounded-lg border border-[color:var(--line)] bg-[color:var(--panel-soft)] p-4"
+              >
+                <p className="text-sm font-semibold">{task.title}</p>
+                <p className="mt-2 text-xs text-[color:var(--muted)]">
+                  {friendlyStatus(task.priority)} priority
+                  {task.dueAt ? ` - Due ${formatDateTime(task.dueAt)}` : ""}
+                </p>
+              </div>
+            ))
+          ) : (
+            <p className="rounded-lg border border-dashed border-[color:var(--line)] p-4 text-sm text-[color:var(--muted)] md:col-span-3">
+              No urgent tasks are waiting. You can create CRM follow-ups when
+              new leads arrive.
+            </p>
+          )}
+        </div>
+      </Surface>
+
+      {activeTool ? (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/70 p-4 backdrop-blur-sm">
+          <Surface className="max-h-[90vh] w-full max-w-2xl overflow-y-auto p-5">
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <IconTile icon={activeTool.icon} className="size-11" />
+                <div>
+                  <h2 className="text-xl font-semibold">{activeTool.title}</h2>
+                  <p className="mt-1 text-sm leading-6 text-[color:var(--muted)]">
+                    {activeTool.explanation}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                title="Close tool"
+                className={buttonVariants({ variant: "ghost", size: "icon" })}
+                onClick={() => setActiveTool(null)}
+              >
+                <X className="size-4" aria-hidden="true" />
+              </button>
+            </div>
+
+            <form
+              className="mt-5 space-y-4"
+              onSubmit={(event) => void submitTool(event)}
+            >
+              <label className="block">
+                <span className="text-sm font-semibold">
+                  {activeTool.inputLabel}
+                </span>
+                <textarea
+                  value={toolInput}
+                  onChange={(event) => setToolInput(event.target.value)}
+                  rows={7}
+                  placeholder={activeTool.placeholder}
+                  className="mt-2 min-h-40 w-full resize-y rounded-lg border border-[color:var(--line)] bg-[color:var(--panel-soft)] px-3 py-3 text-sm outline-none transition focus:border-cyan-400"
+                />
+              </label>
+
+              <div className="grid gap-3 md:grid-cols-2">
+                <label className="block">
+                  <span className="text-sm font-semibold">Output language</span>
+                  <select
+                    value={toolLanguage}
+                    onChange={(event) => setToolLanguage(event.target.value)}
+                    className="mt-2 h-11 w-full rounded-lg border border-[color:var(--line)] bg-[color:var(--panel-soft)] px-3 text-sm outline-none transition focus:border-cyan-400"
+                  >
+                    {supportedLanguages.map((language) => (
+                      <option key={language.label} value={language.label}>
+                        {language.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                {activeTool.tones?.length ? (
+                  <label className="block">
+                    <span className="text-sm font-semibold">Tone</span>
+                    <select
+                      value={toolTone}
+                      onChange={(event) => setToolTone(event.target.value)}
+                      className="mt-2 h-11 w-full rounded-lg border border-[color:var(--line)] bg-[color:var(--panel-soft)] px-3 text-sm outline-none transition focus:border-cyan-400"
+                    >
+                      {activeTool.tones.map((tone) => (
+                        <option key={tone} value={tone}>
+                          {tone}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : (
+                  <div className="rounded-lg border border-[color:var(--line)] bg-[color:var(--panel-soft)] p-3">
+                    <p className="text-sm font-semibold">Output</p>
+                    <p className="mt-1 text-xs leading-5 text-[color:var(--muted)]">
+                      {activeTool.resultHint}
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {activeTool.tones?.length ? (
+                <div className="rounded-lg border border-[color:var(--line)] bg-[color:var(--panel-soft)] p-3">
+                  <p className="text-sm font-semibold">Output</p>
+                  <p className="mt-1 text-xs leading-5 text-[color:var(--muted)]">
+                    {activeTool.resultHint}
+                  </p>
+                </div>
+              ) : null}
+
+              {toolError ? (
+                <p className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-700 dark:text-red-300">
+                  {toolError}
+                </p>
+              ) : null}
+
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-xs leading-5 text-[color:var(--muted)]">
+                  The result will open in MAGZ Assistant and be saved to
+                  conversation history.
+                </p>
+                <Button type="submit" disabled={isToolRunning || isSending}>
+                  {isToolRunning ? (
+                    <Loader2
+                      className="size-4 animate-spin"
+                      aria-hidden="true"
+                    />
+                  ) : (
+                    <Sparkles className="size-4" aria-hidden="true" />
+                  )}
+                  Run tool
+                </Button>
+              </div>
+            </form>
+          </Surface>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -1081,31 +2015,28 @@ const miniButtonClass =
 const bottomRowClass =
   "flex w-full items-center gap-3 rounded-lg border border-[color:var(--line)] bg-[color:var(--panel-soft)] px-3 py-2 text-left transition hover:border-cyan-400/40";
 
-function TopStat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-lg border border-[color:var(--line)] bg-[color:var(--panel-soft)] p-3">
-      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[color:var(--muted)]">{label}</p>
-      <p className="mt-2 text-lg font-semibold">{value}</p>
-    </div>
-  );
-}
-
 function BottomPanel({
   title,
   emptyText,
-  children
+  children,
 }: {
   title: string;
   emptyText: string;
   children: ReactNode;
 }) {
-  const hasItems = Boolean(children && (!Array.isArray(children) || children.length > 0));
+  const hasItems = Boolean(
+    children && (!Array.isArray(children) || children.length > 0),
+  );
 
   return (
     <Surface className="p-5">
       <h2 className="font-semibold">{title}</h2>
       <div className="mt-4 space-y-2">
-        {hasItems ? children : <p className="text-sm text-[color:var(--muted)]">{emptyText}</p>}
+        {hasItems ? (
+          children
+        ) : (
+          <p className="text-sm text-[color:var(--muted)]">{emptyText}</p>
+        )}
       </div>
     </Surface>
   );

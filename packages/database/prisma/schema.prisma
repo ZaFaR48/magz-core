@@ -92,54 +92,54 @@ enum CRMTaskPriority {
 }
 
 model User {
-  id           String               @id @default(cuid())
-  email        String               @unique
-  name         String?
-  passwordHash String
-  role         Role                 @default(USER)
-  memberships  OrganizationMember[]
-  conversations AIConversation[]
-  aiMessages   AIMessage[]
-  aiUsageLogs  AIUsageLog[]
-  assignedCompanies Company[]       @relation("CompanyAssignee")
-  assignedContacts Contact[]        @relation("ContactAssignee")
-  assignedLeads    Lead[]           @relation("LeadAssignee")
-  assignedDeals    Deal[]           @relation("DealAssignee")
-  assignedTasks    Task[]           @relation("TaskAssignee")
-  createdTasks     Task[]           @relation("TaskCreator")
-  dealActivities   DealActivity[]   @relation("DealActivityActor")
-  notes            Note[]           @relation("NoteAuthor")
-  auditLogs    AuditLog[]          @relation("AuditActor")
-  createdAt    DateTime            @default(now())
-  updatedAt    DateTime            @updatedAt
+  id                String               @id @default(cuid())
+  email             String               @unique
+  name              String?
+  passwordHash      String
+  role              Role                 @default(USER)
+  memberships       OrganizationMember[]
+  conversations     AIConversation[]
+  aiMessages        AIMessage[]
+  aiUsageLogs       AIUsageLog[]
+  assignedCompanies Company[]            @relation("CompanyAssignee")
+  assignedContacts  Contact[]            @relation("ContactAssignee")
+  assignedLeads     Lead[]               @relation("LeadAssignee")
+  assignedDeals     Deal[]               @relation("DealAssignee")
+  assignedTasks     Task[]               @relation("TaskAssignee")
+  createdTasks      Task[]               @relation("TaskCreator")
+  dealActivities    DealActivity[]       @relation("DealActivityActor")
+  notes             Note[]               @relation("NoteAuthor")
+  auditLogs         AuditLog[]           @relation("AuditActor")
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
 
   @@index([role])
 }
 
 model Organization {
-  id            String               @id @default(cuid())
-  name          String
-  slug          String               @unique
-  domain        String?
-  members       OrganizationMember[]
-  projects      Project[]
-  modules       OrganizationModule[]
-  conversations AIConversation[]
-  aiMessages    AIMessage[]
-  aiModelRoutes AIModelRoute[]
-  aiUsageLogs   AIUsageLog[]
-  companies     Company[]
-  contacts      Contact[]
-  leads         Lead[]
-  pipelines     Pipeline[]
+  id             String               @id @default(cuid())
+  name           String
+  slug           String               @unique
+  domain         String?
+  members        OrganizationMember[]
+  projects       Project[]
+  modules        OrganizationModule[]
+  conversations  AIConversation[]
+  aiMessages     AIMessage[]
+  aiModelRoutes  AIModelRoute[]
+  aiUsageLogs    AIUsageLog[]
+  companies      Company[]
+  contacts       Contact[]
+  leads          Lead[]
+  pipelines      Pipeline[]
   pipelineStages PipelineStage[]
-  deals         Deal[]
+  deals          Deal[]
   dealActivities DealActivity[]
-  tasks         Task[]
-  notes         Note[]
-  auditLogs     AuditLog[]
-  createdAt     DateTime             @default(now())
-  updatedAt     DateTime             @updatedAt
+  tasks          Task[]
+  notes          Note[]
+  auditLogs      AuditLog[]
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
 }
 
 model OrganizationMember {
@@ -207,32 +207,34 @@ model OrganizationModule {
 }
 
 model AIConversation {
-  id             String       @id @default(cuid())
+  id             String        @id @default(cuid())
   organizationId String
   projectId      String?
   userId         String
   routeId        String?
   providerId     String?
   title          String
-  provider       String       @default("magz")
+  provider       String        @default("magz")
   model          String?
   messages       Json
-  status         String       @default("open")
-  isPinned       Boolean      @default(false)
-  isFavorite     Boolean      @default(false)
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  project        Project?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
-  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status         String        @default("open")
+  toolType       String?
+  isPinned       Boolean       @default(false)
+  isFavorite     Boolean       @default(false)
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  project        Project?      @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   route          AIModelRoute? @relation(fields: [routeId], references: [id], onDelete: SetNull)
   providerRef    AIProvider?   @relation(fields: [providerId], references: [id], onDelete: SetNull)
   aiMessages     AIMessage[]
   usageLogs      AIUsageLog[]
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
 
   @@index([organizationId, updatedAt])
   @@index([organizationId, isPinned, updatedAt])
   @@index([organizationId, isFavorite, updatedAt])
+  @@index([organizationId, toolType, updatedAt])
   @@index([userId, updatedAt])
   @@index([routeId])
   @@index([providerId])
@@ -283,7 +285,7 @@ model AIModelRoute {
 }
 
 model AIMessage {
-  id              String          @id @default(cuid())
+  id              String         @id @default(cuid())
   conversationId  String
   organizationId  String
   userId          String?
@@ -291,16 +293,16 @@ model AIMessage {
   providerId      String?
   role            AIMessageRole
   content         String
-  tokenCount      Int             @default(0)
-  costEstimateUsd Decimal?        @db.Decimal(12, 6)
+  tokenCount      Int            @default(0)
+  costEstimateUsd Decimal?       @db.Decimal(12, 6)
   metadata        Json?
-  conversation    AIConversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  organization    Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  user            User?           @relation(fields: [userId], references: [id], onDelete: SetNull)
-  route           AIModelRoute?   @relation(fields: [routeId], references: [id], onDelete: SetNull)
-  provider        AIProvider?     @relation(fields: [providerId], references: [id], onDelete: SetNull)
+  conversation    AIConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  organization    Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user            User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
+  route           AIModelRoute?  @relation(fields: [routeId], references: [id], onDelete: SetNull)
+  provider        AIProvider?    @relation(fields: [providerId], references: [id], onDelete: SetNull)
   usageLogs       AIUsageLog[]
-  createdAt       DateTime        @default(now())
+  createdAt       DateTime       @default(now())
 
   @@index([conversationId, createdAt])
   @@index([organizationId, createdAt])
@@ -310,30 +312,30 @@ model AIMessage {
 }
 
 model AIUsageLog {
-  id              String          @id @default(cuid())
-  organizationId  String
-  userId          String
-  conversationId  String
-  messageId       String?
-  routeId         String?
-  providerId      String?
-  providerKey     String
-  model           String
-  promptTokens    Int             @default(0)
+  id               String         @id @default(cuid())
+  organizationId   String
+  userId           String
+  conversationId   String
+  messageId        String?
+  routeId          String?
+  providerId       String?
+  providerKey      String
+  model            String
+  promptTokens     Int            @default(0)
   completionTokens Int            @default(0)
-  totalTokens     Int             @default(0)
-  costEstimateUsd Decimal?        @db.Decimal(12, 6)
-  latencyMs       Int?
-  status          String          @default("ok")
-  errorCode       String?
-  metadata        Json?
-  organization    Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  conversation    AIConversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  message         AIMessage?      @relation(fields: [messageId], references: [id], onDelete: SetNull)
-  route           AIModelRoute?   @relation(fields: [routeId], references: [id], onDelete: SetNull)
-  provider        AIProvider?     @relation(fields: [providerId], references: [id], onDelete: SetNull)
-  createdAt       DateTime        @default(now())
+  totalTokens      Int            @default(0)
+  costEstimateUsd  Decimal?       @db.Decimal(12, 6)
+  latencyMs        Int?
+  status           String         @default("ok")
+  errorCode        String?
+  metadata         Json?
+  organization     Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user             User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversation     AIConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  message          AIMessage?     @relation(fields: [messageId], references: [id], onDelete: SetNull)
+  route            AIModelRoute?  @relation(fields: [routeId], references: [id], onDelete: SetNull)
+  provider         AIProvider?    @relation(fields: [providerId], references: [id], onDelete: SetNull)
+  createdAt        DateTime       @default(now())
 
   @@index([organizationId, createdAt])
   @@index([userId, createdAt])
@@ -472,7 +474,7 @@ model PipelineStage {
 }
 
 model Deal {
-  id                String              @id @default(cuid())
+  id                String         @id @default(cuid())
   organizationId    String
   pipelineId        String
   stageId           String
@@ -482,24 +484,24 @@ model Deal {
   assignedUserId    String?
   title             String
   description       String?
-  value             Decimal             @default(0) @db.Decimal(12, 2)
-  currency          String              @default("USD")
-  status            CRMDealStatus        @default(OPEN)
+  value             Decimal        @default(0) @db.Decimal(12, 2)
+  currency          String         @default("USD")
+  status            CRMDealStatus  @default(OPEN)
   expectedCloseDate DateTime?
   wonAt             DateTime?
   lostAt            DateTime?
-  organization      Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  pipeline          Pipeline            @relation(fields: [pipelineId], references: [id], onDelete: Restrict)
-  stage             PipelineStage       @relation(fields: [stageId], references: [id], onDelete: Restrict)
-  company           Company?            @relation(fields: [companyId], references: [id], onDelete: SetNull)
-  contact           Contact?            @relation(fields: [contactId], references: [id], onDelete: SetNull)
-  lead              Lead?               @relation(fields: [leadId], references: [id], onDelete: SetNull)
-  assignedUser      User?               @relation("DealAssignee", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  organization      Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  pipeline          Pipeline       @relation(fields: [pipelineId], references: [id], onDelete: Restrict)
+  stage             PipelineStage  @relation(fields: [stageId], references: [id], onDelete: Restrict)
+  company           Company?       @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  contact           Contact?       @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  lead              Lead?          @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  assignedUser      User?          @relation("DealAssignee", fields: [assignedUserId], references: [id], onDelete: SetNull)
   activities        DealActivity[]
   tasks             Task[]
   notes             Note[]
-  createdAt         DateTime            @default(now())
-  updatedAt         DateTime            @updatedAt
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
   deletedAt         DateTime?
 
   @@index([organizationId, status, deletedAt])

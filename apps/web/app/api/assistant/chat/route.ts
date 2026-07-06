@@ -6,7 +6,9 @@ import { AssistantError, sendAssistantMessage } from "@/lib/ai/service";
 const chatSchema = z.object({
   message: z.string().trim().min(1).max(12000),
   conversationId: z.string().trim().min(1).optional().nullable(),
-  routeKey: z.string().trim().min(1).max(120).optional().nullable()
+  routeKey: z.string().trim().min(1).max(120).optional().nullable(),
+  toolType: z.string().trim().min(1).max(80).optional().nullable(),
+  toolTitle: z.string().trim().min(1).max(120).optional().nullable(),
 });
 
 export async function POST(request: Request) {
@@ -15,7 +17,10 @@ export async function POST(request: Request) {
   const parsed = chatSchema.safeParse(body);
 
   if (!parsed.success) {
-    return NextResponse.json({ error: "Invalid assistant chat payload." }, { status: 400 });
+    return NextResponse.json(
+      { error: "Invalid assistant chat payload." },
+      { status: 400 },
+    );
   }
 
   // TODO: add per-organization and per-user rate limits before public launch.
@@ -24,15 +29,23 @@ export async function POST(request: Request) {
       session,
       message: parsed.data.message,
       conversationId: parsed.data.conversationId,
-      routeKey: parsed.data.routeKey
+      routeKey: parsed.data.routeKey,
+      toolType: parsed.data.toolType,
+      toolTitle: parsed.data.toolTitle,
     });
 
     return NextResponse.json(result);
   } catch (error) {
     if (error instanceof AssistantError) {
-      return NextResponse.json({ error: error.message }, { status: error.status });
+      return NextResponse.json(
+        { error: error.message },
+        { status: error.status },
+      );
     }
 
-    return NextResponse.json({ error: "Assistant provider failed." }, { status: 502 });
+    return NextResponse.json(
+      { error: "Assistant provider failed." },
+      { status: 502 },
+    );
   }
 }

@@ -13,7 +13,7 @@ const SYSTEM_PROMPT =
 export class AssistantError extends Error {
   constructor(
     message: string,
-    public readonly status = 400
+    public readonly status = 400,
   ) {
     super(message);
   }
@@ -25,8 +25,13 @@ type AssistantSession = {
   role: MagzRole;
 };
 
-function canAccessUserConversation(session: AssistantSession, conversationUserId: string) {
-  return conversationUserId === session.userId || roleAtLeast(session.role, "ADMIN");
+function canAccessUserConversation(
+  session: AssistantSession,
+  conversationUserId: string,
+) {
+  return (
+    conversationUserId === session.userId || roleAtLeast(session.role, "ADMIN")
+  );
 }
 
 function toChatRole(role: string): AIChatMessage["role"] {
@@ -48,14 +53,14 @@ function toChatRole(role: string): AIChatMessage["role"] {
 function serializeMessages(messages: Array<{ role: string; content: string }>) {
   return messages.map((message) => ({
     role: toChatRole(message.role),
-    content: message.content
+    content: message.content,
   }));
 }
 
 function toJsonMessages(messages: AIChatMessage[]): Prisma.InputJsonValue {
   return messages.map((message) => ({
     role: message.role,
-    content: message.content
+    content: message.content,
   }));
 }
 
@@ -74,10 +79,10 @@ export async function listAssistantRoutes(organizationId: string) {
   const routes = await prisma.aIModelRoute.findMany({
     where: {
       isEnabled: true,
-      OR: [{ organizationId: null }, { organizationId }]
+      OR: [{ organizationId: null }, { organizationId }],
     },
     include: { provider: true },
-    orderBy: [{ isDefault: "desc" }, { priority: "asc" }, { label: "asc" }]
+    orderBy: [{ isDefault: "desc" }, { priority: "asc" }, { label: "asc" }],
   });
 
   return routes.map((route) => ({
@@ -89,7 +94,7 @@ export async function listAssistantRoutes(organizationId: string) {
     isDefault: route.isDefault,
     providerKey: route.provider.key,
     providerName: route.provider.name,
-    providerKind: route.provider.kind
+    providerKind: route.provider.kind,
   }));
 }
 
@@ -99,16 +104,16 @@ async function resolveRoute(organizationId: string, routeKey?: string | null) {
   const preferredRouteKey = routeKey ?? process.env.AI_DEFAULT_ROUTE_KEY;
   const routeWhere = {
     isEnabled: true,
-    OR: [{ organizationId: null }, { organizationId }]
+    OR: [{ organizationId: null }, { organizationId }],
   };
 
   if (preferredRouteKey) {
     const requestedRoute = await prisma.aIModelRoute.findFirst({
       where: {
         ...routeWhere,
-        routeKey: preferredRouteKey
+        routeKey: preferredRouteKey,
       },
-      include: { provider: true }
+      include: { provider: true },
     });
 
     if (requestedRoute) {
@@ -119,7 +124,7 @@ async function resolveRoute(organizationId: string, routeKey?: string | null) {
   const defaultRoute = await prisma.aIModelRoute.findFirst({
     where: routeWhere,
     include: { provider: true },
-    orderBy: [{ isDefault: "desc" }, { priority: "asc" }]
+    orderBy: [{ isDefault: "desc" }, { priority: "asc" }],
   });
 
   if (!defaultRoute) {
@@ -129,16 +134,19 @@ async function resolveRoute(organizationId: string, routeKey?: string | null) {
   return defaultRoute;
 }
 
-async function getConversationForSession(conversationId: string, session: AssistantSession) {
+async function getConversationForSession(
+  conversationId: string,
+  session: AssistantSession,
+) {
   const conversation = await prisma.aIConversation.findFirst({
     where: {
       id: conversationId,
-      organizationId: session.organizationId
+      organizationId: session.organizationId,
     },
     include: {
       route: true,
-      providerRef: true
-    }
+      providerRef: true,
+    },
   });
 
   if (!conversation) {
@@ -146,7 +154,10 @@ async function getConversationForSession(conversationId: string, session: Assist
   }
 
   if (!canAccessUserConversation(session, conversation.userId)) {
-    throw new AssistantError("You do not have access to this conversation.", 403);
+    throw new AssistantError(
+      "You do not have access to this conversation.",
+      403,
+    );
   }
 
   return conversation;
@@ -157,7 +168,9 @@ export async function listAssistantConversations(session: AssistantSession) {
     prisma.aIConversation.findMany({
       where: {
         organizationId: session.organizationId,
-        ...(roleAtLeast(session.role, "ADMIN") ? {} : { userId: session.userId })
+        ...(roleAtLeast(session.role, "ADMIN")
+          ? {}
+          : { userId: session.userId }),
       },
       orderBy: { updatedAt: "desc" },
       take: 50,
@@ -166,11 +179,11 @@ export async function listAssistantConversations(session: AssistantSession) {
         providerRef: true,
         aiMessages: {
           orderBy: { createdAt: "desc" },
-          take: 1
-        }
-      }
+          take: 1,
+        },
+      },
     }),
-    listAssistantRoutes(session.organizationId)
+    listAssistantRoutes(session.organizationId),
   ]);
 
   return {
@@ -184,6 +197,7 @@ export async function listAssistantConversations(session: AssistantSession) {
       routeKey: conversation.route?.routeKey ?? null,
       routeLabel: conversation.route?.label ?? null,
       model: conversation.model,
+      toolType: conversation.toolType,
       isPinned: conversation.isPinned,
       isFavorite: conversation.isFavorite,
       updatedAt: conversation.updatedAt.toISOString(),
@@ -192,32 +206,35 @@ export async function listAssistantConversations(session: AssistantSession) {
         ? {
             role: toChatRole(conversation.aiMessages[0].role),
             content: conversation.aiMessages[0].content,
-            createdAt: conversation.aiMessages[0].createdAt.toISOString()
+            createdAt: conversation.aiMessages[0].createdAt.toISOString(),
           }
-        : null
-    }))
+        : null,
+    })),
   };
 }
 
-export async function getAssistantConversation(conversationId: string, session: AssistantSession) {
+export async function getAssistantConversation(
+  conversationId: string,
+  session: AssistantSession,
+) {
   const conversation = await getConversationForSession(conversationId, session);
   const [messages, usageLogs, routes] = await Promise.all([
     prisma.aIMessage.findMany({
       where: {
         conversationId: conversation.id,
-        organizationId: session.organizationId
+        organizationId: session.organizationId,
       },
-      orderBy: { createdAt: "asc" }
+      orderBy: { createdAt: "asc" },
     }),
     prisma.aIUsageLog.findMany({
       where: {
         conversationId: conversation.id,
-        organizationId: session.organizationId
+        organizationId: session.organizationId,
       },
       orderBy: { createdAt: "desc" },
-      take: 10
+      take: 10,
     }),
-    listAssistantRoutes(session.organizationId)
+    listAssistantRoutes(session.organizationId),
   ]);
 
   return {
@@ -231,10 +248,11 @@ export async function getAssistantConversation(conversationId: string, session: 
       routeKey: conversation.route?.routeKey ?? null,
       routeLabel: conversation.route?.label ?? null,
       model: conversation.model,
+      toolType: conversation.toolType,
       isPinned: conversation.isPinned,
       isFavorite: conversation.isFavorite,
       createdAt: conversation.createdAt.toISOString(),
-      updatedAt: conversation.updatedAt.toISOString()
+      updatedAt: conversation.updatedAt.toISOString(),
     },
     messages: messages.map((message) => ({
       id: message.id,
@@ -242,7 +260,7 @@ export async function getAssistantConversation(conversationId: string, session: 
       content: message.content,
       tokenCount: message.tokenCount,
       costEstimateUsd: message.costEstimateUsd?.toString() ?? "0",
-      createdAt: message.createdAt.toISOString()
+      createdAt: message.createdAt.toISOString(),
     })),
     usageLogs: usageLogs.map((usageLog) => ({
       id: usageLog.id,
@@ -254,16 +272,19 @@ export async function getAssistantConversation(conversationId: string, session: 
       costEstimateUsd: usageLog.costEstimateUsd?.toString() ?? "0",
       latencyMs: usageLog.latencyMs,
       status: usageLog.status,
-      createdAt: usageLog.createdAt.toISOString()
-    }))
+      createdAt: usageLog.createdAt.toISOString(),
+    })),
   };
 }
 
-export async function deleteAssistantConversation(conversationId: string, session: AssistantSession) {
+export async function deleteAssistantConversation(
+  conversationId: string,
+  session: AssistantSession,
+) {
   const conversation = await getConversationForSession(conversationId, session);
 
   await prisma.aIConversation.delete({
-    where: { id: conversation.id }
+    where: { id: conversation.id },
   });
 }
 
@@ -272,7 +293,7 @@ export async function updateAssistantConversation({
   session,
   title,
   isPinned,
-  isFavorite
+  isFavorite,
 }: {
   conversationId: string;
   session: AssistantSession;
@@ -287,27 +308,30 @@ export async function updateAssistantConversation({
     data: {
       title,
       isPinned,
-      isFavorite
+      isFavorite,
     },
     include: {
       route: true,
       providerRef: true,
       aiMessages: {
         orderBy: { createdAt: "desc" },
-        take: 1
-      }
-    }
+        take: 1,
+      },
+    },
   });
 
   return {
     id: updatedConversation.id,
     title: updatedConversation.title,
     status: updatedConversation.status,
-    provider: updatedConversation.providerRef?.key ?? updatedConversation.provider,
-    providerName: updatedConversation.providerRef?.name ?? updatedConversation.provider,
+    provider:
+      updatedConversation.providerRef?.key ?? updatedConversation.provider,
+    providerName:
+      updatedConversation.providerRef?.name ?? updatedConversation.provider,
     routeKey: updatedConversation.route?.routeKey ?? null,
     routeLabel: updatedConversation.route?.label ?? null,
     model: updatedConversation.model,
+    toolType: updatedConversation.toolType,
     isPinned: updatedConversation.isPinned,
     isFavorite: updatedConversation.isFavorite,
     updatedAt: updatedConversation.updatedAt.toISOString(),
@@ -316,9 +340,9 @@ export async function updateAssistantConversation({
       ? {
           role: toChatRole(updatedConversation.aiMessages[0].role),
           content: updatedConversation.aiMessages[0].content,
-          createdAt: updatedConversation.aiMessages[0].createdAt.toISOString()
+          createdAt: updatedConversation.aiMessages[0].createdAt.toISOString(),
         }
-      : null
+      : null,
   };
 }
 
@@ -326,12 +350,16 @@ export async function sendAssistantMessage({
   session,
   message,
   conversationId,
-  routeKey
+  routeKey,
+  toolType,
+  toolTitle,
 }: {
   session: AssistantSession;
   message: string;
   conversationId?: string | null;
   routeKey?: string | null;
+  toolType?: string | null;
+  toolTitle?: string | null;
 }) {
   const route = await resolveRoute(session.organizationId, routeKey);
   const registry = createProviderRegistry();
@@ -349,26 +377,29 @@ export async function sendAssistantMessage({
           userId: session.userId,
           routeId: route.id,
           providerId: route.providerId,
-          title: titleFromMessage(message),
+          title: toolTitle
+            ? `${toolTitle}: ${titleFromMessage(message)}`.slice(0, 120)
+            : titleFromMessage(message),
+          toolType,
           provider: route.provider.key,
           model: route.model,
-          messages: []
-        }
+          messages: [],
+        },
       });
 
   const previousMessages = await prisma.aIMessage.findMany({
     where: {
       conversationId: conversation.id,
-      organizationId: session.organizationId
+      organizationId: session.organizationId,
     },
     orderBy: { createdAt: "desc" },
-    take: 24
+    take: 24,
   });
   const orderedPreviousMessages = previousMessages.reverse();
   const providerMessages: AIChatMessage[] = [
     { role: "system", content: SYSTEM_PROMPT },
     ...serializeMessages(orderedPreviousMessages),
-    { role: "user", content: message }
+    { role: "user", content: message },
   ];
 
   const userMessage = await prisma.aIMessage.create({
@@ -380,8 +411,8 @@ export async function sendAssistantMessage({
       providerId: route.providerId,
       role: "USER",
       content: message,
-      tokenCount: estimateTokensFromText(message)
-    }
+      tokenCount: estimateTokensFromText(message),
+    },
   });
 
   const startedAt = Date.now();
@@ -394,7 +425,7 @@ export async function sendAssistantMessage({
       routeKey: route.routeKey,
       providerKey: route.provider.key,
       model: route.model,
-      messages: providerMessages
+      messages: providerMessages,
     });
 
     const assistantMessage = await prisma.aIMessage.create({
@@ -410,15 +441,15 @@ export async function sendAssistantMessage({
         metadata: {
           providerKey: response.providerKey,
           routeKey: route.routeKey,
-          model: response.model
-        }
-      }
+          model: response.model,
+        },
+      },
     });
 
     const normalizedMessages = [
       ...serializeMessages(orderedPreviousMessages),
       { role: "user" as const, content: userMessage.content },
-      { role: "assistant" as const, content: assistantMessage.content }
+      { role: "assistant" as const, content: assistantMessage.content },
     ].slice(-100);
 
     await prisma.$transaction([
@@ -429,9 +460,10 @@ export async function sendAssistantMessage({
           providerId: route.providerId,
           provider: route.provider.key,
           model: route.model,
+          toolType: toolType ?? conversation.toolType,
           messages: toJsonMessages(normalizedMessages),
-          updatedAt: new Date()
-        }
+          updatedAt: new Date(),
+        },
       }),
       prisma.aIUsageLog.create({
         data: {
@@ -450,9 +482,9 @@ export async function sendAssistantMessage({
           latencyMs: response.latencyMs ?? Date.now() - startedAt,
           status: "ok",
           metadata: {
-            routeKey: route.routeKey
-          }
-        }
+            routeKey: route.routeKey,
+          },
+        },
       }),
       prisma.auditLog.create({
         data: {
@@ -467,10 +499,10 @@ export async function sendAssistantMessage({
             model: response.model,
             promptTokens: response.usage.promptTokens,
             completionTokens: response.usage.completionTokens,
-            totalTokens: response.usage.totalTokens
-          }
-        }
-      })
+            totalTokens: response.usage.totalTokens,
+          },
+        },
+      }),
     ]);
 
     return {
@@ -481,15 +513,16 @@ export async function sendAssistantMessage({
         model: response.model,
         routeKey: route.routeKey,
         routeLabel: route.label,
+        toolType: toolType ?? conversation.toolType,
         isPinned: conversation.isPinned,
-        isFavorite: conversation.isFavorite
+        isFavorite: conversation.isFavorite,
       },
       route: {
         routeKey: route.routeKey,
         label: route.label,
         model: route.model,
         providerKey: route.provider.key,
-        providerName: route.provider.name
+        providerName: route.provider.name,
       },
       messages: [
         {
@@ -497,7 +530,7 @@ export async function sendAssistantMessage({
           role: "user" as const,
           content: userMessage.content,
           tokenCount: userMessage.tokenCount,
-          createdAt: userMessage.createdAt.toISOString()
+          createdAt: userMessage.createdAt.toISOString(),
         },
         {
           id: assistantMessage.id,
@@ -505,10 +538,10 @@ export async function sendAssistantMessage({
           content: assistantMessage.content,
           tokenCount: assistantMessage.tokenCount,
           costEstimateUsd: assistantMessage.costEstimateUsd?.toString() ?? "0",
-          createdAt: assistantMessage.createdAt.toISOString()
-        }
+          createdAt: assistantMessage.createdAt.toISOString(),
+        },
       ],
-      usage: response.usage
+      usage: response.usage,
     };
   } catch (error) {
     await prisma.aIUsageLog.create({
@@ -521,16 +554,18 @@ export async function sendAssistantMessage({
         providerKey: route.provider.key,
         model: route.model,
         promptTokens: providerMessages.reduce(
-          (total, providerMessage) => total + estimateTokensFromText(providerMessage.content),
-          0
+          (total, providerMessage) =>
+            total + estimateTokensFromText(providerMessage.content),
+          0,
         ),
         completionTokens: 0,
         totalTokens: 0,
         costEstimateUsd: "0.000000",
         latencyMs: Date.now() - startedAt,
         status: "error",
-        errorCode: error instanceof Error ? error.message.slice(0, 120) : "unknown"
-      }
+        errorCode:
+          error instanceof Error ? error.message.slice(0, 120) : "unknown",
+      },
     });
 
     throw error;
