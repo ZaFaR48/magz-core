@@ -54,6 +54,8 @@ services:
       LOCAL_LLM_MODEL: ${LOCAL_LLM_MODEL:-llama3.1}
     ports:
       - "3000:3000"
+    healthcheck:
+      disable: true
 
 
 volumes:
