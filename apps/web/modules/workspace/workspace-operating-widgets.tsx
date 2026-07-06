@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  Activity,
   Bell,
   Bot,
   Building2,
@@ -14,7 +13,15 @@ import {
   Wifi,
   WifiOff,
 } from "lucide-react";
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import type { LucideIcon } from "lucide-react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from "react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { IconTile, Surface } from "@/components/ui/surface";
 import { useI18n } from "@/lib/i18n/client";
@@ -58,12 +65,6 @@ type NetworkMetrics = {
   jitterMs: number | null;
   packetLossPercent: number | null;
   quality: "good" | "fair" | "poor" | "not-run";
-};
-
-type ProductSummary = {
-  id: string;
-  sku: string;
-  name: string;
 };
 
 async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
@@ -161,7 +162,7 @@ function mbps(bytes: number, durationMs: number) {
   return (bytes * 8) / (durationMs / 1000) / 1_000_000;
 }
 
-async function timedProbe(bytes = 0) {
+async function timedProbe(bytes = 0, signal?: AbortSignal) {
   const startedAt = performance.now();
   const payload = await fetchJson<{
     serverDurationMs: number;
@@ -169,13 +170,14 @@ async function timedProbe(bytes = 0) {
     payload?: string;
   }>(`/api/network/probe?bytes=${bytes}&t=${Date.now()}`, {
     cache: "no-store",
+    signal,
   });
   const durationMs = performance.now() - startedAt;
 
   return { payload, durationMs };
 }
 
-async function measureWebSocketLatency() {
+async function measureWebSocketLatency(signal?: AbortSignal) {
   const websocketUrl = process.env.NEXT_PUBLIC_WS_URL;
 
   if (!websocketUrl) {
@@ -184,26 +186,55 @@ async function measureWebSocketLatency() {
 
   return new Promise<{ latencyMs: number | null; status: "ready" | "error" }>(
     (resolve) => {
+      if (signal?.aborted) {
+        resolve({ latencyMs: null, status: "error" });
+        return;
+      }
+
       const startedAt = performance.now();
       const socket = new WebSocket(websocketUrl);
+      let settled = false;
+      const finish = (result: {
+        latencyMs: number | null;
+        status: "ready" | "error";
+      }) => {
+        if (settled) {
+          return;
+        }
+
+        settled = true;
+        window.clearTimeout(timeout);
+        signal?.removeEventListener("abort", onAbort);
+        resolve(result);
+      };
+      const onAbort = () => {
+        socket.close();
+        finish({ latencyMs: null, status: "error" });
+      };
       const timeout = window.setTimeout(() => {
         socket.close();
-        resolve({ latencyMs: null, status: "error" });
+        finish({ latencyMs: null, status: "error" });
       }, 5000);
 
+      signal?.addEventListener("abort", onAbort, { once: true });
+
       socket.addEventListener("open", () => {
-        window.clearTimeout(timeout);
         const latencyMs = Math.round(performance.now() - startedAt);
         socket.close();
-        resolve({ latencyMs, status: "ready" });
+        finish({ latencyMs, status: "ready" });
       });
 
       socket.addEventListener("error", () => {
-        window.clearTimeout(timeout);
-        resolve({ latencyMs: null, status: "error" });
+        finish({ latencyMs: null, status: "error" });
       });
     },
   );
+}
+
+function throwIfAborted(signal: AbortSignal) {
+  if (signal.aborted) {
+    throw new Error("Speed test stopped.");
+  }
 }
 
 export function NotificationCenter({
@@ -217,7 +248,7 @@ export function NotificationCenter({
 }) {
   const { t } = useI18n();
   const [isOpen, setIsOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState("notifications");
+  const [activeTab, setActiveTab] = useState("all");
   const aiEvents = activities.filter(
     (activity) =>
       activity.action.includes("AI") || activity.action.includes("ASSISTANT"),
@@ -239,14 +270,11 @@ export function NotificationCenter({
     activities.length + tasks.filter((task) => task.status !== "DONE").length,
   );
   const tabs = [
-    { id: "notifications", label: t("notifications") },
+    { id: "all", label: "All" },
+    { id: "alerts", label: "Alerts" },
+    { id: "ai", label: "AI" },
+    { id: "system", label: "System" },
     { id: "activity", label: t("activity") },
-    { id: "deploy", label: t("deployLogs") },
-    { id: "ai", label: t("aiEvents") },
-    { id: "system", label: t("systemEvents") },
-    { id: "errors", label: t("errors") },
-    { id: "users", label: t("userActions") },
-    { id: "chats", label: t("recentChats") },
   ];
 
   return (
@@ -297,8 +325,8 @@ export function NotificationCenter({
               </button>
             ))}
           </div>
-          <div className="max-h-96 overflow-y-auto p-3">
-            {activeTab === "notifications" ? (
+          <div className="max-h-80 overflow-y-auto p-3">
+            {activeTab === "all" ? (
               <NotificationRows
                 rows={[
                   ...tasks.slice(0, 4).map((task) => ({
@@ -315,7 +343,17 @@ export function NotificationCenter({
                 emptyText="No notifications need attention."
               />
             ) : null}
-            {activeTab === "activity" || activeTab === "users" ? (
+            {activeTab === "alerts" ? (
+              <NotificationRows
+                rows={errors.map((activity) => ({
+                  id: activity.id,
+                  title: friendlyActivity(activity.action),
+                  detail: formatDateTime(activity.createdAt),
+                }))}
+                emptyText="No alerts right now."
+              />
+            ) : null}
+            {activeTab === "activity" ? (
               <NotificationRows
                 rows={activities.map((activity) => ({
                   id: activity.id,
@@ -323,12 +361,6 @@ export function NotificationCenter({
                   detail: `${activity.actor} - ${formatDateTime(activity.createdAt)}`,
                 }))}
                 emptyText="No user activity recorded yet."
-              />
-            ) : null}
-            {activeTab === "deploy" ? (
-              <NotificationRows
-                rows={[]}
-                emptyText="No deploy logs have been reported to Workspace yet."
               />
             ) : null}
             {activeTab === "ai" ? (
@@ -349,27 +381,6 @@ export function NotificationCenter({
                   detail: formatDateTime(activity.createdAt),
                 }))}
                 emptyText="No system events yet."
-              />
-            ) : null}
-            {activeTab === "errors" ? (
-              <NotificationRows
-                rows={errors.map((activity) => ({
-                  id: activity.id,
-                  title: friendlyActivity(activity.action),
-                  detail: formatDateTime(activity.createdAt),
-                }))}
-                emptyText="No errors recorded."
-              />
-            ) : null}
-            {activeTab === "chats" ? (
-              <NotificationRows
-                rows={conversations.slice(0, 8).map((chat) => ({
-                  id: chat.id,
-                  title: chat.title,
-                  detail:
-                    chat.lastMessage?.content ?? formatDateTime(chat.updatedAt),
-                }))}
-                emptyText="No recent chats yet."
               />
             ) : null}
           </div>
@@ -413,10 +424,13 @@ function NotificationRows({
 
 export function NetworkStatusWidget() {
   const { t } = useI18n();
+  const testControllerRef = useRef<AbortController | null>(null);
   const [isOnline, setIsOnline] = useState(() =>
     typeof navigator === "undefined" ? true : navigator.onLine,
   );
+  const [isModalOpen, setIsModalOpen] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
+  const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [metrics, setMetrics] = useState<NetworkMetrics>({
     apiLatencyMs: null,
@@ -465,7 +479,11 @@ export function NetworkStatusWidget() {
   }, [measureApiLatency]);
 
   async function runSpeedTest() {
+    const controller = new AbortController();
+    testControllerRef.current?.abort();
+    testControllerRef.current = controller;
     setIsRunning(true);
+    setProgress(8);
     setError(null);
 
     try {
@@ -475,29 +493,37 @@ export function NetworkStatusWidget() {
       let serverLatencyMs: number | null = null;
 
       for (let index = 0; index < attempts; index += 1) {
+        throwIfAborted(controller.signal);
         try {
-          const probe = await timedProbe();
+          const probe = await timedProbe(0, controller.signal);
           pingDurations.push(probe.durationMs);
           serverLatencyMs = probe.payload.serverDurationMs;
         } catch {
           failures += 1;
         }
+        setProgress(12 + Math.round(((index + 1) / attempts) * 28));
       }
 
+      throwIfAborted(controller.signal);
       const downloadStartedAt = performance.now();
-      const downloadProbe = await timedProbe(512 * 1024);
+      const downloadProbe = await timedProbe(512 * 1024, controller.signal);
       const downloadDuration = performance.now() - downloadStartedAt;
       const downloadedBytes =
         downloadProbe.payload.payload?.length ?? downloadProbe.payload.bytes;
+      setProgress(58);
+      throwIfAborted(controller.signal);
       const uploadBytes = 256 * 1024;
       const uploadStartedAt = performance.now();
       await fetchJson<{ receivedBytes: number }>("/api/network/probe", {
         method: "POST",
         headers: { "Content-Type": "application/octet-stream" },
         body: new Uint8Array(uploadBytes),
+        signal: controller.signal,
       });
       const uploadDuration = performance.now() - uploadStartedAt;
-      const websocket = await measureWebSocketLatency();
+      setProgress(78);
+      throwIfAborted(controller.signal);
+      const websocket = await measureWebSocketLatency(controller.signal);
       const jitterValues = pingDurations.flatMap((duration, index) => {
         const previousDuration = pingDurations[index - 1];
 
@@ -521,128 +547,200 @@ export function NetworkStatusWidget() {
         ...nextMetrics,
         quality: classifyQuality(nextMetrics),
       });
+      setProgress(100);
     } catch (speedTestError) {
+      if (controller.signal.aborted) {
+        return;
+      }
+
       setError(
         speedTestError instanceof Error
           ? speedTestError.message
           : "Speed test failed.",
       );
     } finally {
-      setIsRunning(false);
+      if (testControllerRef.current === controller) {
+        testControllerRef.current = null;
+        setIsRunning(false);
+      }
     }
   }
 
+  function stopSpeedTest() {
+    testControllerRef.current?.abort();
+    testControllerRef.current = null;
+    setIsRunning(false);
+    setProgress(0);
+  }
+
   return (
-    <Surface className="p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <IconTile icon={isOnline ? Wifi : WifiOff} className="size-10" />
-          <div>
-            <h2 className="font-semibold">{t("networkStatus")}</h2>
-            <p
-              className={cn(
-                "text-sm",
-                isOnline ? "text-emerald-500" : "text-red-500",
-              )}
-            >
-              {isOnline ? t("internetOnline") : t("offline")}
-            </p>
-          </div>
-        </div>
-        <Button
+    <>
+      <div className="inline-flex max-w-full items-center gap-2 rounded-lg border border-[color:var(--line)] bg-[color:var(--panel)] px-3 py-2 shadow-[var(--shadow-soft)]">
+        {isOnline ? (
+          <Wifi className="size-4 text-emerald-500" aria-hidden="true" />
+        ) : (
+          <WifiOff className="size-4 text-red-500" aria-hidden="true" />
+        )}
+        <span className="max-w-32 truncate text-sm font-semibold">
+          {isOnline ? t("internetOnline") : t("offline")}
+        </span>
+        <span className="hidden text-xs text-[color:var(--muted)] sm:inline">
+          API{" "}
+          {metrics.apiLatencyMs === null
+            ? "--"
+            : `${Math.round(metrics.apiLatencyMs)}ms`}
+        </span>
+        <span className="hidden text-xs text-[color:var(--muted)] md:inline">
+          Last{" "}
+          {metrics.downloadMbps === null
+            ? "not run"
+            : `${metrics.downloadMbps.toFixed(1)} Mbps`}
+        </span>
+        <button
           type="button"
-          size="sm"
-          variant="secondary"
-          onClick={() => void runSpeedTest()}
-          disabled={isRunning}
+          className={buttonVariants({
+            variant: "secondary",
+            size: "sm",
+            className: "h-8 px-3",
+          })}
+          onClick={() => setIsModalOpen(true)}
         >
-          {isRunning ? (
-            <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-          ) : (
-            <Gauge className="size-4" aria-hidden="true" />
-          )}
-          {t("runSpeedTest")}
-        </Button>
+          Test
+        </button>
       </div>
 
-      <div className="mt-4 grid grid-cols-2 gap-2">
-        <NetworkMetric
-          label={t("apiLatency")}
-          value={
-            metrics.apiLatencyMs === null
-              ? t("notRun")
-              : `${Math.round(metrics.apiLatencyMs)} ms`
-          }
-        />
-        <NetworkMetric
-          label={t("serverLatency")}
-          value={
-            metrics.serverLatencyMs === null
-              ? t("notRun")
-              : `${Math.round(metrics.serverLatencyMs)} ms`
-          }
-        />
-        <NetworkMetric
-          label={t("websocketLatency")}
-          value={
-            metrics.websocketStatus === "not-configured"
-              ? t("notConfigured")
-              : metrics.websocketLatencyMs === null
-                ? t("notRun")
-                : `${Math.round(metrics.websocketLatencyMs)} ms`
-          }
-        />
-        <NetworkMetric
-          label={t("connectionQuality")}
-          value={qualityLabel(metrics.quality, t)}
-        />
-        <NetworkMetric
-          label={t("download")}
-          value={
-            metrics.downloadMbps === null
-              ? t("notRun")
-              : `${metrics.downloadMbps.toFixed(2)} Mbps`
-          }
-        />
-        <NetworkMetric
-          label={t("upload")}
-          value={
-            metrics.uploadMbps === null
-              ? t("notRun")
-              : `${metrics.uploadMbps.toFixed(2)} Mbps`
-          }
-        />
-        <NetworkMetric
-          label={t("ping")}
-          value={
-            metrics.pingMs === null
-              ? t("notRun")
-              : `${Math.round(metrics.pingMs)} ms`
-          }
-        />
-        <NetworkMetric
-          label={t("jitter")}
-          value={
-            metrics.jitterMs === null
-              ? t("notRun")
-              : `${Math.round(metrics.jitterMs)} ms`
-          }
-        />
-        <NetworkMetric
-          label={t("packetLoss")}
-          value={
-            metrics.packetLossPercent === null
-              ? t("notRun")
-              : `${metrics.packetLossPercent.toFixed(1)}%`
-          }
-        />
-      </div>
-      {error ? (
-        <p className="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-700 dark:text-red-300">
-          {error}
-        </p>
+      {isModalOpen ? (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/70 p-4 backdrop-blur-sm">
+          <Surface className="w-full max-w-xl p-5">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-lg font-semibold">Internet Speed Test</h2>
+                <p className="mt-1 text-sm leading-6 text-[color:var(--muted)]">
+                  Basic browser test. MAGZ measures latency plus small download
+                  and upload samples only after you press Start.
+                </p>
+              </div>
+              <button
+                type="button"
+                className={buttonVariants({ variant: "ghost", size: "sm" })}
+                onClick={() => setIsModalOpen(false)}
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="mt-4 grid gap-2 sm:grid-cols-2">
+              <NetworkMetric
+                label={t("apiLatency")}
+                value={
+                  metrics.apiLatencyMs === null
+                    ? t("notRun")
+                    : `${Math.round(metrics.apiLatencyMs)} ms`
+                }
+              />
+              <NetworkMetric
+                label={t("serverLatency")}
+                value={
+                  metrics.serverLatencyMs === null
+                    ? t("notRun")
+                    : `${Math.round(metrics.serverLatencyMs)} ms`
+                }
+              />
+              <NetworkMetric
+                label={t("websocketLatency")}
+                value={
+                  metrics.websocketStatus === "not-configured"
+                    ? t("notConfigured")
+                    : metrics.websocketLatencyMs === null
+                      ? t("notRun")
+                      : `${Math.round(metrics.websocketLatencyMs)} ms`
+                }
+              />
+              <NetworkMetric
+                label={t("download")}
+                value={
+                  metrics.downloadMbps === null
+                    ? t("notRun")
+                    : `${metrics.downloadMbps.toFixed(2)} Mbps`
+                }
+              />
+              <NetworkMetric
+                label={t("upload")}
+                value={
+                  metrics.uploadMbps === null
+                    ? t("notRun")
+                    : `${metrics.uploadMbps.toFixed(2)} Mbps`
+                }
+              />
+              <NetworkMetric
+                label={t("ping")}
+                value={
+                  metrics.pingMs === null
+                    ? t("notRun")
+                    : `${Math.round(metrics.pingMs)} ms`
+                }
+              />
+              <NetworkMetric
+                label={t("jitter")}
+                value={
+                  metrics.jitterMs === null
+                    ? t("notRun")
+                    : `${Math.round(metrics.jitterMs)} ms`
+                }
+              />
+              <NetworkMetric
+                label="Stability"
+                value={
+                  metrics.packetLossPercent === null
+                    ? t("notRun")
+                    : `${Math.max(0, 100 - metrics.packetLossPercent).toFixed(1)}%`
+                }
+              />
+              <NetworkMetric
+                label={t("connectionQuality")}
+                value={qualityLabel(metrics.quality, t)}
+              />
+            </div>
+
+            <div className="mt-4 h-2 overflow-hidden rounded-full bg-white/10">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-cyan-400 to-violet-500 transition-all"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+            {error ? (
+              <p className="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-700 dark:text-red-300">
+                {error}
+              </p>
+            ) : null}
+            <div className="mt-4 flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => {
+                  stopSpeedTest();
+                }}
+                disabled={!isRunning}
+              >
+                Stop
+              </Button>
+              <Button
+                type="button"
+                onClick={() => void runSpeedTest()}
+                disabled={isRunning}
+              >
+                {isRunning ? (
+                  <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                ) : (
+                  <Gauge className="size-4" aria-hidden="true" />
+                )}
+                Start
+              </Button>
+            </div>
+          </Surface>
+        </div>
       ) : null}
-    </Surface>
+    </>
   );
 }
 
@@ -661,71 +759,33 @@ export function OperatingModulesPanel({
   onStartNewConversation: () => void;
 }) {
   const { t } = useI18n();
-  const [activeModule, setActiveModule] = useState("crm");
-  const modules = [
-    { id: "crm", label: t("crm"), icon: Building2 },
-    { id: "erp", label: t("erp"), icon: Database },
-    { id: "marketplace", label: t("marketplace"), icon: ShoppingBasket },
-    { id: "ai", label: t("aiAssistant"), icon: Bot },
-    { id: "diagnostics", label: t("internetDiagnostics"), icon: Globe2 },
-  ];
 
   return (
     <Surface className="p-4">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <div>
-          <h2 className="font-semibold">Operating modules</h2>
-          <p className="mt-1 text-sm text-[color:var(--muted)]">
-            Create, analyze, diagnose, and route work from one place.
-          </p>
-        </div>
-        <div className="flex gap-2 overflow-x-auto">
-          {modules.map((module) => {
-            const Icon = module.icon;
-
-            return (
-              <button
-                key={module.id}
-                type="button"
-                className={cn(
-                  "inline-flex h-10 shrink-0 items-center gap-2 rounded-lg border px-3 text-sm font-semibold transition",
-                  activeModule === module.id
-                    ? "border-cyan-300/40 bg-cyan-400/15 text-[color:var(--foreground)]"
-                    : "border-[color:var(--line)] bg-[color:var(--panel-soft)] text-[color:var(--muted)] hover:border-cyan-400/40 hover:text-[color:var(--foreground)]",
-                )}
-                onClick={() => setActiveModule(module.id)}
-              >
-                <Icon className="size-4" aria-hidden="true" />
-                {module.label}
-              </button>
-            );
-          })}
-        </div>
+      <div>
+        <h2 className="font-semibold">Try it now</h2>
+        <p className="mt-1 text-sm text-[color:var(--muted)]">
+          Small actions that create real records or run real diagnostics.
+        </p>
       </div>
 
-      <div className="mt-4">
-        {activeModule === "crm" ? <CRMWorkspaceActions /> : null}
-        {activeModule === "erp" ? <ERPWorkspaceActions /> : null}
-        {activeModule === "marketplace" ? (
-          <MarketplaceWorkspaceActions />
-        ) : null}
-        {activeModule === "ai" ? (
-          <AIWorkspaceActions onStartNewConversation={onStartNewConversation} />
-        ) : null}
-        {activeModule === "diagnostics" ? (
-          <DiagnosticsWorkspaceActions />
-        ) : null}
+      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+        <CRMWorkspaceActions title={t("crm")} />
+        <ERPWorkspaceActions title={t("erp")} />
+        <MarketplaceWorkspaceActions title={t("marketplace")} />
+        <DiagnosticsWorkspaceActions title="Internet" />
+        <AIWorkspaceActions
+          title={t("aiAssistant")}
+          onStartNewConversation={onStartNewConversation}
+        />
       </div>
     </Surface>
   );
 }
 
-function CRMWorkspaceActions() {
-  const { t } = useI18n();
-  const [type, setType] = useState("lead");
-  const [primary, setPrimary] = useState("");
-  const [secondary, setSecondary] = useState("");
-  const [value, setValue] = useState("");
+function CRMWorkspaceActions({ title }: { title: string }) {
+  const [leadTitle, setLeadTitle] = useState("");
+  const [email, setEmail] = useState("");
   const [status, setStatus] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -735,392 +795,159 @@ function CRMWorkspaceActions() {
     setStatus(null);
 
     try {
-      const endpoint =
-        type === "company"
-          ? "/api/crm/companies"
-          : type === "contact"
-            ? "/api/crm/contacts"
-            : type === "deal"
-              ? "/api/crm/deals"
-              : "/api/crm/leads";
-      const payload =
-        type === "company"
-          ? { name: primary, industry: secondary || undefined }
-          : type === "contact"
-            ? { firstName: primary, email: secondary || undefined }
-            : type === "deal"
-              ? {
-                  title: primary,
-                  value: Number(value || 0),
-                  currency: "USD",
-                  description: secondary || undefined,
-                }
-              : {
-                  title: primary,
-                  email: secondary || undefined,
-                  estimatedValue: value ? Number(value) : undefined,
-                };
-      await fetchJson(endpoint, {
+      await fetchJson("/api/crm/leads", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          title: leadTitle,
+          email: email || undefined,
+          source: "Workspace",
+        }),
       });
-      setStatus(`${type} saved`);
-      setPrimary("");
-      setSecondary("");
-      setValue("");
+      setStatus("Lead created");
+      setLeadTitle("");
+      setEmail("");
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "CRM action failed.");
+      setStatus(
+        error instanceof Error ? error.message : "Could not create lead.",
+      );
     } finally {
       setIsSaving(false);
     }
   }
 
   return (
-    <form
-      className="grid gap-3 lg:grid-cols-[180px_1fr_1fr_160px_auto]"
-      onSubmit={(event) => void submit(event)}
-    >
-      <select
-        value={type}
-        onChange={(event) => setType(event.target.value)}
-        className={inputClass}
-      >
-        <option value="lead">{t("createLead")}</option>
-        <option value="company">{t("companies")}</option>
-        <option value="contact">{t("contacts")}</option>
-        <option value="deal">{t("deals")}</option>
-      </select>
-      <input
-        value={primary}
-        onChange={(event) => setPrimary(event.target.value)}
-        required
-        placeholder={
-          type === "company"
-            ? "Company name"
-            : type === "contact"
-              ? "First name"
-              : "Title"
-        }
-        className={inputClass}
-      />
-      <input
-        value={secondary}
-        onChange={(event) => setSecondary(event.target.value)}
-        placeholder={
-          type === "company"
-            ? "Industry"
-            : type === "deal"
-              ? "Description"
-              : "Email"
-        }
-        className={inputClass}
-      />
-      <input
-        value={value}
-        onChange={(event) => setValue(event.target.value)}
-        type="number"
-        min="0"
-        placeholder="Value"
-        className={inputClass}
-      />
-      <Button type="submit" disabled={isSaving}>
-        {isSaving ? (
-          <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-        ) : (
-          <Send className="size-4" aria-hidden="true" />
-        )}
-        Save
-      </Button>
-      {status ? (
-        <p className="text-sm text-[color:var(--muted)] lg:col-span-5">
-          {status}
-        </p>
-      ) : null}
-    </form>
+    <TryCard title={title} icon={Building2} subtitle="Create Lead">
+      <form className="space-y-2" onSubmit={(event) => void submit(event)}>
+        <input
+          value={leadTitle}
+          onChange={(event) => setLeadTitle(event.target.value)}
+          required
+          placeholder="Lead title"
+          className={inputClass}
+        />
+        <input
+          value={email}
+          onChange={(event) => setEmail(event.target.value)}
+          type="email"
+          placeholder="Email"
+          className={inputClass}
+        />
+        <ActionButton isBusy={isSaving}>Create lead</ActionButton>
+      </form>
+      <ResultText>{status}</ResultText>
+    </TryCard>
   );
 }
 
-function ERPWorkspaceActions() {
-  const { t } = useI18n();
-  const [products, setProducts] = useState<ProductSummary[]>([]);
-  const [sku, setSku] = useState("");
-  const [productName, setProductName] = useState("");
-  const [unitPrice, setUnitPrice] = useState("");
-  const [inventoryProductId, setInventoryProductId] = useState("");
-  const [quantity, setQuantity] = useState("");
-  const [invoiceCustomer, setInvoiceCustomer] = useState("");
-  const [invoiceDescription, setInvoiceDescription] = useState("");
-  const [invoicePrice, setInvoicePrice] = useState("");
+function ERPWorkspaceActions({ title }: { title: string }) {
+  const [mode, setMode] = useState("product");
+  const [primary, setPrimary] = useState("");
+  const [secondary, setSecondary] = useState("");
   const [status, setStatus] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
-  useEffect(() => {
-    async function loadProducts() {
-      const payload = await fetchJson<{ products: ProductSummary[] }>(
-        "/api/erp/products",
-      );
-      setProducts(payload.products);
-      setInventoryProductId(
-        (current) => current || payload.products[0]?.id || "",
-      );
-    }
-
-    void loadProducts().catch(() => undefined);
-  }, []);
-
-  async function createProduct(event: FormEvent<HTMLFormElement>) {
+  async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setIsSaving(true);
     setStatus(null);
 
     try {
-      const payload = await fetchJson<{ product: ProductSummary }>(
-        "/api/erp/products",
-        {
+      if (mode === "product") {
+        await fetchJson("/api/erp/products", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            sku,
-            name: productName,
-            unitPrice: Number(unitPrice || 0),
+            sku: primary,
+            name: secondary,
+            unitPrice: 0,
             currency: "USD",
           }),
-        },
-      );
-      setProducts((current) => [payload.product, ...current]);
-      setInventoryProductId(payload.product.id);
-      setSku("");
-      setProductName("");
-      setUnitPrice("");
-      setStatus("Product saved");
+        });
+        setStatus("Product created");
+      } else {
+        await fetchJson("/api/erp/invoices", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            customerName: primary,
+            currency: "USD",
+            items: [
+              {
+                description: secondary || "Service",
+                quantity: 1,
+                unitPrice: 0,
+              },
+            ],
+          }),
+        });
+        setStatus("Invoice created");
+      }
+      setPrimary("");
+      setSecondary("");
     } catch (error) {
-      setStatus(
-        error instanceof Error ? error.message : "Product could not be saved.",
-      );
-    } finally {
-      setIsSaving(false);
-    }
-  }
-
-  async function updateInventory(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setIsSaving(true);
-    setStatus(null);
-
-    try {
-      await fetchJson("/api/erp/inventory", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          productId: inventoryProductId,
-          quantity: Number(quantity || 0),
-          reorderPoint: 5,
-        }),
-      });
-      setQuantity("");
-      setStatus("Inventory updated");
-    } catch (error) {
-      setStatus(
-        error instanceof Error
-          ? error.message
-          : "Inventory could not be updated.",
-      );
-    } finally {
-      setIsSaving(false);
-    }
-  }
-
-  async function createInvoice(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setIsSaving(true);
-    setStatus(null);
-
-    try {
-      await fetchJson("/api/erp/invoices", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          customerName: invoiceCustomer,
-          currency: "USD",
-          items: [
-            {
-              description: invoiceDescription,
-              quantity: 1,
-              unitPrice: Number(invoicePrice || 0),
-            },
-          ],
-        }),
-      });
-      setInvoiceCustomer("");
-      setInvoiceDescription("");
-      setInvoicePrice("");
-      setStatus("Invoice saved");
-    } catch (error) {
-      setStatus(
-        error instanceof Error ? error.message : "Invoice could not be saved.",
-      );
+      setStatus(error instanceof Error ? error.message : "ERP action failed.");
     } finally {
       setIsSaving(false);
     }
   }
 
   return (
-    <div className="grid gap-3 xl:grid-cols-3">
-      <form
-        className={moduleActionClass}
-        onSubmit={(event) => void createProduct(event)}
-      >
-        <h3 className="text-sm font-semibold">{t("products")}</h3>
-        <input
-          value={sku}
-          onChange={(event) => setSku(event.target.value)}
-          required
-          placeholder="SKU"
-          className={inputClass}
-        />
-        <input
-          value={productName}
-          onChange={(event) => setProductName(event.target.value)}
-          required
-          placeholder="Product name"
-          className={inputClass}
-        />
-        <input
-          value={unitPrice}
-          onChange={(event) => setUnitPrice(event.target.value)}
-          type="number"
-          min="0"
-          placeholder="Unit price"
-          className={inputClass}
-        />
-        <Button type="submit" disabled={isSaving}>
-          Save product
-        </Button>
-      </form>
-      <form
-        className={moduleActionClass}
-        onSubmit={(event) => void updateInventory(event)}
-      >
-        <h3 className="text-sm font-semibold">{t("inventory")}</h3>
+    <TryCard title={title} icon={Database} subtitle="Product / Invoice">
+      <form className="space-y-2" onSubmit={(event) => void submit(event)}>
         <select
-          value={inventoryProductId}
-          onChange={(event) => setInventoryProductId(event.target.value)}
-          required
+          value={mode}
+          onChange={(event) => setMode(event.target.value)}
           className={inputClass}
         >
-          {products.map((product) => (
-            <option key={product.id} value={product.id}>
-              {product.sku} - {product.name}
-            </option>
-          ))}
+          <option value="product">Create product</option>
+          <option value="invoice">Create invoice</option>
         </select>
         <input
-          value={quantity}
-          onChange={(event) => setQuantity(event.target.value)}
+          value={primary}
+          onChange={(event) => setPrimary(event.target.value)}
           required
-          type="number"
-          min="0"
-          placeholder="Quantity"
+          placeholder={mode === "product" ? "SKU" : "Customer"}
           className={inputClass}
         />
-        <Button type="submit" disabled={isSaving || !products.length}>
-          Update stock
-        </Button>
+        <input
+          value={secondary}
+          onChange={(event) => setSecondary(event.target.value)}
+          required={mode === "product"}
+          placeholder={mode === "product" ? "Product name" : "Line item"}
+          className={inputClass}
+        />
+        <ActionButton isBusy={isSaving}>Save</ActionButton>
       </form>
-      <form
-        className={moduleActionClass}
-        onSubmit={(event) => void createInvoice(event)}
-      >
-        <h3 className="text-sm font-semibold">{t("invoice")}</h3>
-        <input
-          value={invoiceCustomer}
-          onChange={(event) => setInvoiceCustomer(event.target.value)}
-          required
-          placeholder="Customer"
-          className={inputClass}
-        />
-        <input
-          value={invoiceDescription}
-          onChange={(event) => setInvoiceDescription(event.target.value)}
-          required
-          placeholder="Line item"
-          className={inputClass}
-        />
-        <input
-          value={invoicePrice}
-          onChange={(event) => setInvoicePrice(event.target.value)}
-          required
-          type="number"
-          min="0"
-          placeholder="Price"
-          className={inputClass}
-        />
-        <Button type="submit" disabled={isSaving}>
-          Create invoice
-        </Button>
-      </form>
-      {status ? (
-        <p className="text-sm text-[color:var(--muted)] xl:col-span-3">
-          {status}
-        </p>
-      ) : null}
-    </div>
+      <ResultText>{status}</ResultText>
+    </TryCard>
   );
 }
 
-function MarketplaceWorkspaceActions() {
-  const { t } = useI18n();
-  const [query, setQuery] = useState("");
-  const [marketplace, setMarketplace] = useState("Shopee");
+function MarketplaceWorkspaceActions({ title }: { title: string }) {
   const [productName, setProductName] = useState("");
-  const [price, setPrice] = useState("");
-  const [cost, setCost] = useState("");
-  const [competitorPrice, setCompetitorPrice] = useState("");
+  const [numbers, setNumbers] = useState("");
   const [result, setResult] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
-  async function search(event: FormEvent<HTMLFormElement>) {
+  async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setIsSaving(true);
     setResult(null);
 
-    try {
-      const payload = await fetchJson<{ results: unknown[] }>(
-        "/api/marketplace/search",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ query, marketplace }),
-        },
-      );
-      setResult(
-        `Search saved. ${payload.results.length} saved MAGZ analyses matched.`,
-      );
-      setQuery("");
-    } catch (error) {
-      setResult(
-        error instanceof Error ? error.message : "Marketplace search failed.",
-      );
-    } finally {
-      setIsSaving(false);
-    }
-  }
-
-  async function analyze(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setIsSaving(true);
-    setResult(null);
+    const [price = "0", cost = "0", competitorPrice] = numbers
+      .split(",")
+      .map((value) => value.trim());
 
     try {
       const payload = await fetchJson<{
-        analysis: { score: number; summary: string; recommendation: string };
+        analysis: { score: number; recommendation: string };
       }>("/api/marketplace/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           productName,
-          marketplace,
+          marketplace: "Workspace",
           price: Number(price),
           cost: Number(cost),
           competitorPrice: competitorPrice
@@ -1129,64 +956,20 @@ function MarketplaceWorkspaceActions() {
         }),
       });
       setResult(
-        `Score ${payload.analysis.score}. ${payload.analysis.summary} ${payload.analysis.recommendation}`,
+        `Score ${payload.analysis.score}: ${payload.analysis.recommendation}`,
       );
       setProductName("");
-      setPrice("");
-      setCost("");
-      setCompetitorPrice("");
+      setNumbers("");
     } catch (error) {
-      setResult(
-        error instanceof Error ? error.message : "Marketplace analysis failed.",
-      );
+      setResult(error instanceof Error ? error.message : "Analysis failed.");
     } finally {
       setIsSaving(false);
     }
   }
 
   return (
-    <div className="grid gap-3 lg:grid-cols-2">
-      <form
-        className={moduleActionClass}
-        onSubmit={(event) => void search(event)}
-      >
-        <h3 className="text-sm font-semibold">{t("search")}</h3>
-        <select
-          value={marketplace}
-          onChange={(event) => setMarketplace(event.target.value)}
-          className={inputClass}
-        >
-          {[
-            "Alif Shop",
-            "Somon.tj",
-            "Wildberries",
-            "Ozon",
-            "Kaspi",
-            "Lazada",
-            "Shopee",
-            "Tokopedia",
-          ].map((item) => (
-            <option key={item} value={item}>
-              {item}
-            </option>
-          ))}
-        </select>
-        <input
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          required
-          placeholder="Product or keyword"
-          className={inputClass}
-        />
-        <Button type="submit" disabled={isSaving}>
-          Save search
-        </Button>
-      </form>
-      <form
-        className={moduleActionClass}
-        onSubmit={(event) => void analyze(event)}
-      >
-        <h3 className="text-sm font-semibold">{t("analyze")}</h3>
+    <TryCard title={title} icon={ShoppingBasket} subtitle="Analyze Product">
+      <form className="space-y-2" onSubmit={(event) => void submit(event)}>
         <input
           value={productName}
           onChange={(event) => setProductName(event.target.value)}
@@ -1194,90 +977,22 @@ function MarketplaceWorkspaceActions() {
           placeholder="Product name"
           className={inputClass}
         />
-        <div className="grid gap-2 sm:grid-cols-3">
-          <input
-            value={price}
-            onChange={(event) => setPrice(event.target.value)}
-            required
-            type="number"
-            min="0"
-            placeholder="Price"
-            className={inputClass}
-          />
-          <input
-            value={cost}
-            onChange={(event) => setCost(event.target.value)}
-            required
-            type="number"
-            min="0"
-            placeholder="Cost"
-            className={inputClass}
-          />
-          <input
-            value={competitorPrice}
-            onChange={(event) => setCompetitorPrice(event.target.value)}
-            type="number"
-            min="0"
-            placeholder="Competitor"
-            className={inputClass}
-          />
-        </div>
-        <Button type="submit" disabled={isSaving}>
-          Analyze
-        </Button>
+        <input
+          value={numbers}
+          onChange={(event) => setNumbers(event.target.value)}
+          required
+          placeholder="Price, cost, competitor"
+          className={inputClass}
+        />
+        <ActionButton isBusy={isSaving}>Analyze</ActionButton>
       </form>
-      {result ? (
-        <p className="text-sm leading-6 text-[color:var(--muted)] lg:col-span-2">
-          {result}
-        </p>
-      ) : null}
-    </div>
+      <ResultText>{result}</ResultText>
+    </TryCard>
   );
 }
 
-function AIWorkspaceActions({
-  onStartNewConversation,
-}: {
-  onStartNewConversation: () => void;
-}) {
-  const { t } = useI18n();
-
-  return (
-    <div className="grid gap-3 md:grid-cols-3">
-      <div className={moduleActionClass}>
-        <h3 className="text-sm font-semibold">{t("aiAssistant")}</h3>
-        <p className="text-sm text-[color:var(--muted)]">
-          Use the central assistant panel for chat, files, and history.
-        </p>
-        <Button
-          type="button"
-          variant="secondary"
-          onClick={onStartNewConversation}
-        >
-          New chat
-        </Button>
-      </div>
-      <div className={moduleActionClass}>
-        <h3 className="text-sm font-semibold">{t("history")}</h3>
-        <p className="text-sm text-[color:var(--muted)]">
-          Saved conversations, pins, favorites, and quick-tool results are
-          available in the AI chat list.
-        </p>
-      </div>
-      <div className={moduleActionClass}>
-        <h3 className="text-sm font-semibold">Files</h3>
-        <p className="text-sm text-[color:var(--muted)]">
-          Attach PDF, DOCX, Excel, or images in the assistant panel and ask MAGZ
-          to analyze them.
-        </p>
-      </div>
-    </div>
-  );
-}
-
-function DiagnosticsWorkspaceActions() {
-  const { t } = useI18n();
-  const [type, setType] = useState("ping");
+function DiagnosticsWorkspaceActions({ title }: { title: string }) {
+  const [type, setType] = useState("dns");
   const [target, setTarget] = useState("magz.dev");
   const [result, setResult] = useState<string | null>(null);
   const [isRunning, setIsRunning] = useState(false);
@@ -1296,11 +1011,11 @@ function DiagnosticsWorkspaceActions() {
           body: JSON.stringify({ type, target }),
         },
       );
-      setResult(
+      const resultText =
         typeof payload.result === "string"
           ? payload.result
-          : JSON.stringify(payload.result, null, 2),
-      );
+          : JSON.stringify(payload.result);
+      setResult((resultText || "Diagnostics complete").slice(0, 180));
     } catch (error) {
       setResult(error instanceof Error ? error.message : "Diagnostics failed.");
     } finally {
@@ -1309,45 +1024,106 @@ function DiagnosticsWorkspaceActions() {
   }
 
   return (
-    <form className="space-y-3" onSubmit={(event) => void run(event)}>
-      <div className="grid gap-3 md:grid-cols-[180px_1fr_auto]">
+    <TryCard title={title} icon={Globe2} subtitle="DNS / Ping test">
+      <form className="space-y-2" onSubmit={(event) => void run(event)}>
         <select
           value={type}
           onChange={(event) => setType(event.target.value)}
           className={inputClass}
         >
-          <option value="ping">{t("ping")}</option>
-          <option value="traceroute">{t("traceroute")}</option>
-          <option value="latency">{t("latency")}</option>
-          <option value="dns">{t("dns")}</option>
+          <option value="dns">DNS</option>
+          <option value="ping">Ping</option>
+          <option value="latency">Latency</option>
         </select>
         <input
           value={target}
           onChange={(event) => setTarget(event.target.value)}
           required
-          placeholder="domain.com or https://domain.com"
+          placeholder="domain.com"
           className={inputClass}
         />
-        <Button type="submit" disabled={isRunning}>
-          {isRunning ? (
-            <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-          ) : (
-            <Activity className="size-4" aria-hidden="true" />
-          )}
-          Run
-        </Button>
-      </div>
-      {result ? (
-        <pre className="max-h-72 overflow-auto rounded-lg border border-[color:var(--line)] bg-[color:var(--panel-soft)] p-3 text-xs leading-5">
-          {result}
-        </pre>
-      ) : null}
-    </form>
+        <ActionButton isBusy={isRunning}>Run test</ActionButton>
+      </form>
+      <ResultText>{result}</ResultText>
+    </TryCard>
+  );
+}
+
+function AIWorkspaceActions({
+  title,
+  onStartNewConversation,
+}: {
+  title: string;
+  onStartNewConversation: () => void;
+}) {
+  return (
+    <TryCard title={title} icon={Bot} subtitle="Ask AI">
+      <input
+        readOnly
+        value="Start a focused AI conversation"
+        className={cn(inputClass, "cursor-default text-[color:var(--muted)]")}
+      />
+      <Button type="button" onClick={onStartNewConversation}>
+        Ask AI
+      </Button>
+      <ResultText>Uses the central chat and saved history.</ResultText>
+    </TryCard>
   );
 }
 
 const inputClass =
-  "h-11 w-full rounded-lg border border-[color:var(--line)] bg-[color:var(--panel-soft)] px-3 text-sm outline-none transition focus:border-cyan-400";
+  "h-10 w-full rounded-lg border border-[color:var(--line)] bg-[color:var(--panel-soft)] px-3 text-sm outline-none transition focus:border-cyan-400";
 
-const moduleActionClass =
-  "space-y-3 rounded-lg border border-[color:var(--line)] bg-[color:var(--panel-soft)] p-3";
+function TryCard({
+  title,
+  subtitle,
+  icon: Icon,
+  children,
+}: {
+  title: string;
+  subtitle: string;
+  icon: LucideIcon;
+  children: ReactNode;
+}) {
+  return (
+    <div className="min-w-0 rounded-lg border border-[color:var(--line)] bg-[color:var(--panel-soft)] p-3">
+      <div className="mb-3 flex items-center gap-2">
+        <Icon className="size-4 shrink-0 text-cyan-500" aria-hidden="true" />
+        <div className="min-w-0">
+          <h3 className="truncate text-sm font-semibold">{title}</h3>
+          <p className="truncate text-xs text-[color:var(--muted)]">
+            {subtitle}
+          </p>
+        </div>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function ActionButton({
+  isBusy,
+  children,
+}: {
+  isBusy: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <Button type="submit" size="sm" disabled={isBusy} className="w-full">
+      {isBusy ? (
+        <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+      ) : (
+        <Send className="size-4" aria-hidden="true" />
+      )}
+      {children}
+    </Button>
+  );
+}
+
+function ResultText({ children }: { children: ReactNode }) {
+  return (
+    <p className="mt-2 min-h-5 line-clamp-2 text-xs leading-5 text-[color:var(--muted)]">
+      {children}
+    </p>
+  );
+}

@@ -165,7 +165,7 @@ type WorkspaceFile = {
 };
 
 type WorkspaceCategory =
-  "AI Tools" | "Business" | "Internet" | "Marketplace" | "Documents";
+  "All" | "AI" | "Business" | "Internet" | "Marketplace" | "Documents";
 
 type QuickTool = {
   id: string;
@@ -183,7 +183,8 @@ type QuickTool = {
 };
 
 const workspaceCategories: WorkspaceCategory[] = [
-  "AI Tools",
+  "All",
+  "AI",
   "Business",
   "Internet",
   "Marketplace",
@@ -192,23 +193,16 @@ const workspaceCategories: WorkspaceCategory[] = [
 
 const supportedLanguages = [
   { label: "English", prefixes: ["en"] },
-  { label: "Tajik", prefixes: ["tg"] },
   { label: "Russian", prefixes: ["ru"] },
+  { label: "Tajik", prefixes: ["tg"] },
   { label: "Uzbek", prefixes: ["uz"] },
   { label: "Kazakh", prefixes: ["kk"] },
-  { label: "Kyrgyz", prefixes: ["ky"] },
-  { label: "Persian/Farsi", prefixes: ["fa"] },
-  { label: "Arabic", prefixes: ["ar"] },
   { label: "Turkish", prefixes: ["tr"] },
+  { label: "Arabic", prefixes: ["ar"] },
   { label: "Hindi", prefixes: ["hi"] },
-  { label: "Urdu", prefixes: ["ur"] },
   { label: "Chinese", prefixes: ["zh"] },
-  { label: "Korean", prefixes: ["ko"] },
   { label: "Japanese", prefixes: ["ja"] },
-  { label: "Indonesian", prefixes: ["id"] },
-  { label: "Malay", prefixes: ["ms"] },
-  { label: "Vietnamese", prefixes: ["vi"] },
-  { label: "Thai", prefixes: ["th"] },
+  { label: "Korean", prefixes: ["ko"] },
 ];
 
 const starterMessages: ChatMessage[] = [
@@ -253,7 +247,7 @@ ${sharedPromptFooter}`,
   {
     id: "translate",
     title: "Translate",
-    category: "AI Tools",
+    category: "AI",
     detail: "Translate text while preserving business intent.",
     explanation: "Paste text and choose the output language and tone.",
     inputLabel: "Text to translate",
@@ -417,7 +411,7 @@ ${sharedPromptFooter}`,
   {
     id: "explain-code",
     title: "Explain Code",
-    category: "AI Tools",
+    category: "AI",
     detail: "Explain code, risks, and improvements.",
     explanation: "Paste code or a technical question.",
     inputLabel: "Code or technical question",
@@ -442,7 +436,7 @@ ${sharedPromptFooter}`,
   {
     id: "generate-sql",
     title: "Generate SQL",
-    category: "AI Tools",
+    category: "AI",
     detail: "Create careful SQL for business questions.",
     explanation: "Describe the data question and schema.",
     inputLabel: "Data question and schema",
@@ -634,19 +628,10 @@ function formatFileSize(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function detectDefaultLanguage() {
-  if (typeof navigator === "undefined") {
-    return "English";
-  }
-
-  const browserLanguages = navigator.languages?.length
-    ? navigator.languages
-    : [navigator.language];
-  const normalizedLanguages = browserLanguages
-    .filter(Boolean)
-    .map((language) => language.toLowerCase().split("-")[0]);
+function detectDefaultLanguage(preferredLanguage?: string) {
+  const normalizedLanguage = preferredLanguage?.toLowerCase().split("-")[0];
   const matchedLanguage = supportedLanguages.find((language) =>
-    language.prefixes.some((prefix) => normalizedLanguages.includes(prefix)),
+    language.prefixes.includes(normalizedLanguage ?? ""),
   );
 
   return matchedLanguage?.label ?? "English";
@@ -678,7 +663,7 @@ export function WorkspaceClient({
 }: {
   initialState: WorkspaceInitialState;
 }) {
-  const { t } = useI18n();
+  const { language, t } = useI18n();
   const searchParams = useSearchParams();
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
@@ -708,11 +693,11 @@ export function WorkspaceClient({
   >(null);
   const [editingTitle, setEditingTitle] = useState("");
   const [activeCategory, setActiveCategory] =
-    useState<WorkspaceCategory>("AI Tools");
+    useState<WorkspaceCategory>("All");
   const [activeTool, setActiveTool] = useState<QuickTool | null>(null);
   const [toolInput, setToolInput] = useState("");
   const [toolLanguage, setToolLanguage] = useState(() =>
-    detectDefaultLanguage(),
+    detectDefaultLanguage(language),
   );
   const [toolTone, setToolTone] = useState("business");
   const [toolError, setToolError] = useState<string | null>(null);
@@ -739,7 +724,19 @@ export function WorkspaceClient({
   );
 
   const filteredTools = useMemo(
-    () => quickTools.filter((tool) => tool.category === activeCategory),
+    () =>
+      activeCategory === "All"
+        ? quickTools.filter((tool) =>
+            [
+              "fix-error",
+              "translate",
+              "write-marketing-text",
+              "business-plan",
+              "write-email",
+              "generate-invoice",
+            ].includes(tool.id),
+          )
+        : quickTools.filter((tool) => tool.category === activeCategory),
     [activeCategory],
   );
 
@@ -764,6 +761,7 @@ export function WorkspaceClient({
   const pendingTasks = initialState.tasks
     .filter((task) => task.status !== "DONE")
     .slice(0, 5);
+
   const refreshConversations = useCallback(async () => {
     const payload = await fetchJson<{
       routes: RouteOption[];
@@ -921,6 +919,7 @@ export function WorkspaceClient({
   function openTool(tool: QuickTool) {
     setActiveTool(tool);
     setToolInput("");
+    setToolLanguage(detectDefaultLanguage(language));
     setToolTone(tool.defaultTone ?? tool.tones?.[0] ?? "business");
     setToolError(null);
   }
@@ -1068,8 +1067,12 @@ export function WorkspaceClient({
             ],
       );
       setSelectedRouteKey(payload.route.routeKey);
+      const providerKind =
+        payload.route.providerKind ?? selectedRoute?.providerKind;
       setStatusText(
-        `${payload.route.label} replied with ${payload.usage.totalTokens} estimated tokens.`,
+        providerKind === "mock"
+          ? "Demo AI response. Connect an AI provider for live answers."
+          : `${payload.route.label} replied with ${payload.usage.totalTokens} estimated tokens.`,
       );
       await refreshConversations();
     } catch (error) {
@@ -1133,6 +1136,11 @@ export function WorkspaceClient({
         toolTitle: activeTool.title,
         forceNewConversation: true,
       });
+      if (selectedRoute?.providerKind === "mock") {
+        setStatusText(
+          "Demo AI response. Connect an AI provider for live answers.",
+        );
+      }
       setActiveTool(null);
       setToolInput("");
     } catch (error) {
@@ -1147,76 +1155,18 @@ export function WorkspaceClient({
   }
 
   return (
-    <div className="space-y-5">
-      <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
-        <Surface className="overflow-hidden p-5">
-          <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
-            <div className="min-w-0">
-              <p className="text-sm font-semibold uppercase tracking-[0.18em] text-cyan-600 dark:text-cyan-300">
-                {t("workspace")}
-              </p>
-              <h1 className="mt-3 text-3xl font-semibold tracking-normal md:text-4xl">
-                {t("welcomeBack")}, {profileName}
-              </h1>
-              <p className="mt-2 text-lg text-[color:var(--muted)]">
-                {t("solveToday")}
-              </p>
-              <div className="mt-4 flex flex-wrap gap-2 text-xs font-semibold text-[color:var(--muted)]">
-                <span className="rounded-full border border-[color:var(--line)] bg-[color:var(--panel-soft)] px-3 py-1.5">
-                  {initialState.organization.name}
-                </span>
-                <span className="rounded-full border border-[color:var(--line)] bg-[color:var(--panel-soft)] px-3 py-1.5">
-                  {initialState.session.role.toLowerCase()} workspace
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <form className="mt-6" onSubmit={(event) => void submit(event)}>
-            <div className="flex flex-col gap-3 rounded-lg border border-cyan-400/25 bg-gradient-to-r from-cyan-400/10 to-violet-500/10 p-3 md:flex-row">
-              <textarea
-                ref={inputRef}
-                value={input}
-                onChange={(event) => setInput(event.target.value)}
-                onKeyDown={(event) => {
-                  if (
-                    (event.ctrlKey || event.metaKey) &&
-                    event.key === "Enter"
-                  ) {
-                    void submit();
-                  }
-                }}
-                rows={2}
-                placeholder={t("askAnything")}
-                className="min-h-14 flex-1 resize-none border-0 bg-transparent px-1 py-2 text-base outline-none placeholder:text-[color:var(--muted)]"
-              />
-              <button
-                type="submit"
-                title="Send message"
-                disabled={isSending}
-                className={buttonVariants({
-                  size: "icon",
-                  className: "size-12 self-end md:self-center",
-                })}
-              >
-                {isSending ? (
-                  <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-                ) : (
-                  <Send className="size-4" />
-                )}
-                <span className="sr-only">Send message</span>
-              </button>
-            </div>
-          </form>
-
-          <div className="relative mt-4">
+    <div className="space-y-4">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <h1 className="text-xl font-semibold">{t("workspace")}</h1>
+        <div className="flex min-w-0 flex-1 flex-col gap-2 lg:max-w-4xl lg:flex-row lg:items-center lg:justify-end">
+          <div className="relative w-full lg:max-w-xl">
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[color:var(--muted)]" />
             <input
               ref={searchRef}
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder={t("searchEverything")}
-              className="h-12 w-full rounded-lg border border-[color:var(--line)] bg-[color:var(--panel-soft)] px-10 text-sm outline-none transition focus:border-cyan-400"
+              className="h-10 w-full rounded-lg border border-[color:var(--line)] bg-[color:var(--panel)] px-10 text-sm outline-none transition focus:border-cyan-400"
             />
             {query ? (
               <button
@@ -1228,116 +1178,184 @@ export function WorkspaceClient({
                 <X className="size-4" aria-hidden="true" />
               </button>
             ) : null}
+            {query ? (
+              <div className="absolute left-0 right-0 top-12 z-30 max-h-72 overflow-y-auto rounded-lg border border-[color:var(--line)] bg-[color:var(--panel-solid)] p-2 shadow-[var(--shadow-soft)]">
+                {isSearching ? (
+                  <div className="flex items-center gap-2 p-3 text-sm text-[color:var(--muted)]">
+                    <Loader2
+                      className="size-4 animate-spin"
+                      aria-hidden="true"
+                    />
+                    Searching Workspace
+                  </div>
+                ) : null}
+                {!isSearching && searchResults.length === 0 ? (
+                  <p className="p-3 text-sm text-[color:var(--muted)]">
+                    Nothing matched yet.
+                  </p>
+                ) : null}
+                {searchResults.map((item) => (
+                  <Link
+                    key={item.id}
+                    href={item.href}
+                    className="flex items-center justify-between gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-cyan-400/10"
+                  >
+                    <span className="min-w-0">
+                      <span className="block truncate font-semibold">
+                        {item.title}
+                      </span>
+                      <span className="mt-1 block truncate text-xs text-[color:var(--muted)]">
+                        {item.type} - {item.detail}
+                      </span>
+                    </span>
+                    <ChevronRight
+                      className="size-4 shrink-0 text-[color:var(--muted)]"
+                      aria-hidden="true"
+                    />
+                  </Link>
+                ))}
+              </div>
+            ) : null}
           </div>
-
-          {query ? (
-            <div className="mt-3 max-h-80 overflow-y-auto rounded-lg border border-[color:var(--line)] bg-[color:var(--panel-soft)] p-2">
-              {isSearching ? (
-                <div className="flex items-center gap-2 p-3 text-sm text-[color:var(--muted)]">
-                  <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-                  Searching Workspace
-                </div>
-              ) : null}
-              {!isSearching && searchResults.length === 0 ? (
-                <p className="p-3 text-sm text-[color:var(--muted)]">
-                  Nothing matched yet. Try a company, contact, task, module, or
-                  chat title.
-                </p>
-              ) : null}
-              {searchResults.map((item) => (
-                <Link
-                  key={item.id}
-                  href={item.href}
-                  className="flex items-center justify-between gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-cyan-400/10"
-                >
-                  <span className="min-w-0">
-                    <span className="block truncate font-semibold">
-                      {item.title}
-                    </span>
-                    <span className="mt-1 block truncate text-xs text-[color:var(--muted)]">
-                      {item.type} - {item.detail}
-                    </span>
-                  </span>
-                  <ChevronRight
-                    className="size-4 shrink-0 text-[color:var(--muted)]"
-                    aria-hidden="true"
-                  />
-                </Link>
-              ))}
-            </div>
-          ) : null}
-        </Surface>
-
-        <div className="space-y-4">
-          <div className="flex justify-end">
+          <div className="flex items-center gap-2">
+            <NetworkStatusWidget />
             <NotificationCenter
               activities={initialState.activities}
               conversations={conversations}
               tasks={initialState.tasks}
             />
           </div>
-          <NetworkStatusWidget />
         </div>
-      </section>
+      </div>
 
-      <OperatingModulesPanel onStartNewConversation={startNewConversation} />
+      <Surface className="overflow-hidden p-5">
+        <p className="text-sm font-semibold uppercase tracking-[0.18em] text-cyan-600 dark:text-cyan-300">
+          {initialState.organization.name}
+        </p>
+        <h2 className="mt-2 text-2xl font-semibold tracking-normal md:text-3xl">
+          {t("welcomeBack")}, {profileName}
+        </h2>
+        <p className="mt-1 text-base text-[color:var(--muted)]">
+          {t("solveToday")}
+        </p>
 
-      <section className="grid gap-5 2xl:grid-cols-[280px_minmax(0,1fr)_280px]">
-        <aside className="space-y-3">
-          <Surface className="p-3">
-            <div className="mb-3 px-1">
-              <h2 className="font-semibold">Quick AI Tools</h2>
-              <p className="mt-1 text-sm text-[color:var(--muted)]">
-                Start with a focused workflow.
-              </p>
-            </div>
-            <div className="grid grid-cols-2 gap-2 2xl:grid-cols-1">
-              {workspaceCategories.map((category) => (
-                <button
-                  key={category}
-                  type="button"
-                  className={cn(
-                    "min-h-10 rounded-lg border px-3 text-sm font-semibold transition",
-                    activeCategory === category
-                      ? "border-cyan-300/40 bg-cyan-400/15 text-[color:var(--foreground)]"
-                      : "border-[color:var(--line)] bg-[color:var(--panel-soft)] text-[color:var(--muted)] hover:border-cyan-400/40 hover:text-[color:var(--foreground)]",
-                  )}
-                  onClick={() => setActiveCategory(category)}
-                >
-                  {category}
-                </button>
-              ))}
-            </div>
-          </Surface>
-
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-1">
-            {filteredTools.map((tool) => {
-              const Icon = tool.icon;
-
-              return (
-                <button
-                  key={tool.id}
-                  type="button"
-                  className="group min-h-36 rounded-lg border border-[color:var(--line)] bg-[color:var(--panel)] p-4 text-left shadow-[var(--shadow-soft)] transition hover:-translate-y-0.5 hover:border-cyan-400/50 hover:bg-cyan-400/10 focus:outline-none focus:ring-2 focus:ring-cyan-400/50"
-                  onClick={() => openTool(tool)}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <IconTile icon={Icon} className="size-10" />
-                    <span className="rounded-full border border-cyan-400/20 px-2 py-1 text-[11px] font-semibold text-cyan-700 opacity-80 transition group-hover:opacity-100 dark:text-cyan-200">
-                      Open
-                    </span>
-                  </div>
-                  <p className="mt-3 text-sm font-semibold">{tool.title}</p>
-                  <p className="mt-1 text-xs leading-5 text-[color:var(--muted)]">
-                    {tool.detail}
-                  </p>
-                </button>
-              );
-            })}
+        <form className="mt-4" onSubmit={(event) => void submit(event)}>
+          <div className="flex flex-col gap-3 rounded-lg border border-cyan-400/25 bg-gradient-to-r from-cyan-400/10 to-violet-500/10 p-3 md:flex-row">
+            <textarea
+              ref={inputRef}
+              value={input}
+              onChange={(event) => setInput(event.target.value)}
+              onKeyDown={(event) => {
+                if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+                  void submit();
+                }
+              }}
+              rows={1}
+              placeholder={t("askAnything")}
+              className="min-h-11 flex-1 resize-none border-0 bg-transparent px-1 py-2 text-base outline-none placeholder:text-[color:var(--muted)]"
+            />
+            <button
+              type="submit"
+              title="Send message"
+              disabled={isSending}
+              className={buttonVariants({
+                size: "icon",
+                className: "size-11 self-end md:self-center",
+              })}
+            >
+              {isSending ? (
+                <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+              ) : (
+                <Send className="size-4" />
+              )}
+              <span className="sr-only">Send message</span>
+            </button>
           </div>
-        </aside>
+        </form>
 
-        <Surface className="min-h-[720px] overflow-hidden">
+        <div className="mt-4 flex flex-wrap gap-2">
+          {[
+            "fix-error",
+            "translate",
+            "write-marketing-text",
+            "business-plan",
+          ].map((toolId) => {
+            const tool = quickTools.find((item) => item.id === toolId);
+
+            return tool ? (
+              <button
+                key={tool.id}
+                type="button"
+                className="rounded-full border border-[color:var(--line)] bg-[color:var(--panel-soft)] px-3 py-1.5 text-sm font-semibold transition hover:border-cyan-400/50 hover:bg-cyan-400/10"
+                onClick={() => openTool(tool)}
+              >
+                {tool.title}
+              </button>
+            ) : null;
+          })}
+        </div>
+      </Surface>
+
+      <Surface className="p-4">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <h2 className="font-semibold">Quick tools</h2>
+            <p className="mt-1 text-sm text-[color:var(--muted)]">
+              Start with a focused workflow.
+            </p>
+          </div>
+          <div className="flex gap-2 overflow-x-auto">
+            {workspaceCategories.map((category) => (
+              <button
+                key={category}
+                type="button"
+                className={cn(
+                  "h-9 shrink-0 rounded-lg border px-3 text-sm font-semibold transition",
+                  activeCategory === category
+                    ? "border-cyan-300/40 bg-cyan-400/15 text-[color:var(--foreground)]"
+                    : "border-[color:var(--line)] bg-[color:var(--panel-soft)] text-[color:var(--muted)] hover:border-cyan-400/40 hover:text-[color:var(--foreground)]",
+                )}
+                onClick={() => setActiveCategory(category)}
+              >
+                {category}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {filteredTools.map((tool) => {
+            const Icon = tool.icon;
+
+            return (
+              <button
+                key={tool.id}
+                type="button"
+                className="group rounded-lg border border-[color:var(--line)] bg-[color:var(--panel)] p-3 text-left shadow-[var(--shadow-soft)] transition hover:-translate-y-0.5 hover:border-cyan-400/50 hover:bg-cyan-400/10 focus:outline-none focus:ring-2 focus:ring-cyan-400/50"
+                onClick={() => openTool(tool)}
+              >
+                <div className="flex items-center gap-3">
+                  <IconTile icon={Icon} className="size-9" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-semibold">
+                      {tool.title}
+                    </span>
+                    <span className="block truncate text-xs text-[color:var(--muted)]">
+                      {tool.detail}
+                    </span>
+                  </span>
+                  <span className="rounded-full border border-cyan-400/20 px-2 py-1 text-[11px] font-semibold text-cyan-700 opacity-80 transition group-hover:opacity-100 dark:text-cyan-200">
+                    Open
+                  </span>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </Surface>
+
+      <section className="grid gap-5 2xl:grid-cols-[minmax(0,1fr)_280px]">
+        <Surface className="min-h-[620px] overflow-hidden">
           <div className="grid h-full xl:grid-cols-[270px_minmax(0,1fr)]">
             <aside className="border-b border-[color:var(--line)] xl:border-b-0 xl:border-r">
               <div className="flex items-center justify-between border-b border-[color:var(--line)] p-4">
@@ -1471,7 +1489,7 @@ export function WorkspaceClient({
               </div>
             </aside>
 
-            <div className="flex min-h-[720px] flex-col">
+            <div className="flex min-h-[620px] flex-col">
               <div className="flex flex-col gap-3 border-b border-[color:var(--line)] p-4 md:flex-row md:items-center md:justify-between">
                 <div className="flex items-center gap-3">
                   <IconTile icon={Bot} className="size-10" />
@@ -1713,6 +1731,8 @@ export function WorkspaceClient({
           </div>
         </aside>
       </section>
+
+      <OperatingModulesPanel onStartNewConversation={startNewConversation} />
 
       <section className="grid gap-5 lg:grid-cols-3">
         <BottomPanel

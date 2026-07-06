@@ -77,10 +77,7 @@ function UserMenuPanel({
       <div className="space-y-2 border-b border-[color:var(--line)] p-3">
         {[
           { label: t("profile"), href: "/workspace" },
-          { label: t("settings"), href: "/admin/settings" },
           { label: t("organization"), href: "/admin/settings" },
-          { label: t("billing"), href: "/admin/settings" },
-          { label: t("apiKeys"), href: "/admin/settings" },
         ].map((item) => (
           <Link
             key={item.label}
@@ -117,6 +114,12 @@ function UserMenuPanel({
         </span>
         <ThemeToggle />
       </div>
+      <Link
+        href="/admin/settings"
+        className="block border-t border-[color:var(--line)] px-3 py-3 text-sm font-semibold text-[color:var(--muted)] transition hover:bg-cyan-400/10 hover:text-[color:var(--foreground)]"
+      >
+        {t("settings")}
+      </Link>
       <button
         type="button"
         onClick={onLogout}
@@ -149,14 +152,14 @@ export function AppShell({
   }
 
   return (
-    <div className="magz-grid min-h-screen lg:grid lg:grid-cols-[292px_1fr]">
+    <div className="magz-grid min-h-screen lg:grid lg:grid-cols-[280px_1fr]">
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-50 flex w-72 -translate-x-full flex-col border-r border-[color:var(--line)] bg-[color:var(--panel)] shadow-[var(--shadow-soft)] backdrop-blur-2xl transition lg:sticky lg:top-0 lg:h-screen lg:w-auto lg:translate-x-0",
+          "fixed inset-y-0 left-0 z-50 flex w-[280px] -translate-x-full flex-col border-r border-[color:var(--line)] bg-[color:var(--panel)] shadow-[var(--shadow-soft)] backdrop-blur-2xl transition lg:sticky lg:top-0 lg:h-screen lg:translate-x-0",
           isOpen && "translate-x-0",
         )}
       >
-        <div className="flex h-16 items-center justify-between border-b border-[color:var(--line)] px-5">
+        <div className="flex h-16 shrink-0 items-center justify-between border-b border-[color:var(--line)] px-5">
           <MagzLogo href="/workspace" />
           <button
             type="button"
@@ -172,7 +175,7 @@ export function AppShell({
           </button>
         </div>
 
-        <nav className="flex-1 space-y-1 overflow-y-auto p-3">
+        <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto px-3 py-3">
           {navigation.map((item) => {
             const active =
               pathname === item.href ||
@@ -188,7 +191,7 @@ export function AppShell({
                 className={cn(
                   "group flex min-h-11 items-center gap-3 rounded-lg border border-transparent px-3 text-sm font-medium text-[color:var(--muted)] transition hover:border-cyan-400/20 hover:bg-cyan-400/10 hover:text-[color:var(--foreground)]",
                   active &&
-                    "border-cyan-300/30 bg-gradient-to-r from-cyan-400/20 to-violet-500/18 text-[color:var(--foreground)] shadow-lg shadow-cyan-500/10",
+                    "border-cyan-300/30 bg-cyan-400/12 text-[color:var(--foreground)]",
                 )}
               >
                 <Icon
@@ -206,7 +209,7 @@ export function AppShell({
           })}
         </nav>
 
-        <div className="relative border-t border-[color:var(--line)] p-4">
+        <div className="relative shrink-0 border-t border-[color:var(--line)] p-3">
           {isUserMenuOpen ? (
             <UserMenuPanel
               session={session}
@@ -217,7 +220,7 @@ export function AppShell({
           ) : null}
           <button
             type="button"
-            className="flex w-full items-center gap-3 rounded-lg border border-[color:var(--line)] bg-[color:var(--panel-soft)] p-3 text-left transition hover:border-cyan-400/40 hover:bg-cyan-400/10"
+            className="flex w-full items-center gap-3 rounded-lg border border-[color:var(--line)] bg-[color:var(--panel-soft)] px-3 py-2.5 text-left transition hover:border-cyan-400/40 hover:bg-cyan-400/10"
             onClick={() => setIsUserMenuOpen((current) => !current)}
           >
             <span className="grid size-10 place-items-center rounded-lg bg-gradient-to-br from-cyan-400/20 to-violet-500/20 text-sm font-semibold text-cyan-700 dark:text-cyan-200">
@@ -280,7 +283,7 @@ export function AppShell({
             </button>
           </div>
         </header>
-        <main className="mx-auto w-full max-w-7xl px-4 py-6 md:px-8 md:py-8">
+        <main className="mx-auto w-full max-w-[1440px] overflow-x-hidden px-4 py-5 md:px-5 lg:px-8 lg:py-8">
           {children}
         </main>
       </div>

@@ -523,6 +523,7 @@ export async function sendAssistantMessage({
         model: route.model,
         providerKey: route.provider.key,
         providerName: route.provider.name,
+        providerKind: route.provider.kind,
       },
       messages: [
         {

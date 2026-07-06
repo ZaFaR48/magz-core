@@ -783,11 +783,14 @@ function detectLanguage(): UiLanguageCode {
   const browserLanguages = navigator.languages?.length
     ? navigator.languages
     : [navigator.language];
-  const matchedLanguage = browserLanguages
+  const browserLanguage = browserLanguages
     .map((language) => language.toLowerCase().split("-")[0])
-    .find((language) => isLanguageCode(language));
+    .find(
+      (language): language is UiLanguageCode =>
+        language === "ru" || language === "tg",
+    );
 
-  return matchedLanguage ?? defaultLanguage;
+  return browserLanguage ?? defaultLanguage;
 }
 
 function applyDocumentLanguage(language: UiLanguageCode) {
