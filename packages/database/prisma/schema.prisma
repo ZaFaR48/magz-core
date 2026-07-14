@@ -48,7 +48,21 @@ enum AuditAction {
   ERP_ENTITY_UPDATED
   MARKETPLACE_SEARCH_CREATED
   MARKETPLACE_ANALYSIS_CREATED
+  MARKETPLACE_PRODUCT_VIEWED
+  MARKETPLACE_COMPARE_CREATED
   DIAGNOSTICS_RUN
+}
+
+enum MarketplaceStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum MarketplaceJobStatus {
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
 }
 
 enum AIMessageRole {
@@ -147,6 +161,11 @@ model Organization {
   erpInvoices         ERPInvoice[]
   marketplaceSearches MarketplaceSearch[]
   marketplaceAnalyses MarketplaceAnalysis[]
+  marketplaceProducts  MarketplaceProduct[]
+  marketplaceSnapshots MarketplaceSnapshot[]
+  marketplaceJobs      MarketplaceJob[]
+  marketplaceCaches    MarketplaceCache[]
+  marketplaceTrends    MarketplaceTrend[]
   auditLogs           AuditLog[]
   createdAt           DateTime              @default(now())
   updatedAt           DateTime              @updatedAt
@@ -683,6 +702,159 @@ model ERPInvoiceItem {
   @@index([productId])
 }
 
+model Marketplace {
+  id             String                @id @default(cuid())
+  key            String                @unique
+  name           String
+  country        String                @default("TJ")
+  baseUrl        String
+  searchUrl      String?
+  status         MarketplaceStatus     @default(ACTIVE)
+  adapterKey     String
+  config         Json?
+  products       MarketplaceProduct[]
+  categories     MarketplaceCategory[]
+  sellers        MarketplaceSeller[]
+  snapshots      MarketplaceSnapshot[]
+  jobs           MarketplaceJob[]
+  caches         MarketplaceCache[]
+  trends         MarketplaceTrend[]
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+
+  @@index([country, status])
+  @@index([adapterKey])
+}
+
+model MarketplaceCategory {
+  id             String                @id @default(cuid())
+  marketplaceId  String
+  parentId       String?
+  externalId     String?
+  name           String
+  slug           String?
+  url            String?
+  marketplace    Marketplace           @relation(fields: [marketplaceId], references: [id], onDelete: Cascade)
+  parent         MarketplaceCategory?  @relation("MarketplaceCategoryTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children       MarketplaceCategory[] @relation("MarketplaceCategoryTree")
+  products       MarketplaceProduct[]
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+
+  @@unique([marketplaceId, externalId])
+  @@index([marketplaceId, name])
+  @@index([parentId])
+}
+
+model MarketplaceSeller {
+  id             String               @id @default(cuid())
+  marketplaceId  String
+  externalId     String?
+  name           String
+  profileUrl     String?
+  rating         Decimal?             @db.Decimal(5, 2)
+  marketplace    Marketplace          @relation(fields: [marketplaceId], references: [id], onDelete: Cascade)
+  products       MarketplaceProduct[]
+  snapshots      MarketplaceSnapshot[]
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  @@unique([marketplaceId, externalId])
+  @@unique([marketplaceId, name])
+  @@index([marketplaceId, rating])
+}
+
+model MarketplaceProduct {
+  id                String                    @id @default(cuid())
+  organizationId    String
+  marketplaceId     String
+  categoryId        String?
+  sellerId          String?
+  externalId        String?
+  title             String
+  normalizedTitle   String
+  description       String?
+  url               String
+  currency          String                    @default("TJS")
+  currentPrice      Decimal?                  @db.Decimal(12, 2)
+  originalPrice     Decimal?                  @db.Decimal(12, 2)
+  availability      String?
+  rating            Decimal?                  @db.Decimal(5, 2)
+  reviewCount       Int?
+  popularityScore   Decimal?                  @db.Decimal(8, 2)
+  lastSeenAt        DateTime                  @default(now())
+  firstSeenAt       DateTime                  @default(now())
+  metadata          Json?
+  organization      Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  marketplace       Marketplace               @relation(fields: [marketplaceId], references: [id], onDelete: Cascade)
+  category          MarketplaceCategory?      @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  seller            MarketplaceSeller?        @relation(fields: [sellerId], references: [id], onDelete: SetNull)
+  images            MarketplaceImage[]
+  snapshots         MarketplaceSnapshot[]
+  priceHistory      MarketplacePriceHistory[]
+  analyses          MarketplaceAnalysis[]
+  trends            MarketplaceTrend[]
+  createdAt         DateTime                  @default(now())
+  updatedAt         DateTime                  @updatedAt
+
+  @@unique([organizationId, marketplaceId, externalId])
+  @@unique([organizationId, marketplaceId, url])
+  @@index([organizationId, normalizedTitle])
+  @@index([organizationId, currentPrice])
+  @@index([marketplaceId, lastSeenAt])
+  @@index([categoryId])
+  @@index([sellerId])
+}
+
+model MarketplaceImage {
+  id          String             @id @default(cuid())
+  productId   String
+  url         String
+  alt         String?
+  position    Int                @default(0)
+  product     MarketplaceProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+  createdAt   DateTime           @default(now())
+
+  @@unique([productId, url])
+  @@index([productId, position])
+}
+
+model MarketplaceSnapshot {
+  id             String              @id @default(cuid())
+  organizationId String
+  marketplaceId  String
+  productId      String
+  sellerId       String?
+  price          Decimal?            @db.Decimal(12, 2)
+  currency       String              @default("TJS")
+  availability   String?
+  rating         Decimal?            @db.Decimal(5, 2)
+  reviewCount    Int?
+  popularityRaw  String?
+  metadata       Json?
+  organization   Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  marketplace    Marketplace         @relation(fields: [marketplaceId], references: [id], onDelete: Cascade)
+  product        MarketplaceProduct  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  seller         MarketplaceSeller?  @relation(fields: [sellerId], references: [id], onDelete: SetNull)
+  createdAt      DateTime            @default(now())
+
+  @@index([organizationId, createdAt])
+  @@index([productId, createdAt])
+  @@index([marketplaceId, createdAt])
+}
+
+model MarketplacePriceHistory {
+  id          String             @id @default(cuid())
+  productId   String
+  price       Decimal            @db.Decimal(12, 2)
+  currency    String             @default("TJS")
+  source      String             @default("snapshot")
+  product     MarketplaceProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+  capturedAt  DateTime           @default(now())
+
+  @@index([productId, capturedAt])
+}
+
 model MarketplaceSearch {
   id             String                @id @default(cuid())
   organizationId String
@@ -690,6 +862,12 @@ model MarketplaceSearch {
   marketplace    String?
   source         String                @default("manual")
   results        Json
+  status         String                @default("completed")
+  resultCount    Int                   @default(0)
+  minPrice       Decimal?              @db.Decimal(12, 2)
+  maxPrice       Decimal?              @db.Decimal(12, 2)
+  averagePrice   Decimal?              @db.Decimal(12, 2)
+  metadata       Json?
   organization   Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   analyses       MarketplaceAnalysis[]
   createdAt      DateTime              @default(now())
@@ -702,19 +880,83 @@ model MarketplaceAnalysis {
   id             String             @id @default(cuid())
   organizationId String
   searchId       String?
+  productId      String?
   productName    String
   marketplace    String?
   input          Json
   summary        String
   recommendation String
   score          Int                @default(50)
+  pros           Json?
+  cons           Json?
+  demand         String?
+  targetAudience String?
   organization   Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   search         MarketplaceSearch? @relation(fields: [searchId], references: [id], onDelete: SetNull)
+  product        MarketplaceProduct? @relation(fields: [productId], references: [id], onDelete: SetNull)
   createdAt      DateTime           @default(now())
 
   @@index([organizationId, createdAt])
   @@index([searchId])
+  @@index([productId])
   @@index([score])
+}
+
+model MarketplaceJob {
+  id             String               @id @default(cuid())
+  organizationId String
+  marketplaceId  String?
+  type           String
+  status         MarketplaceJobStatus  @default(QUEUED)
+  payload        Json
+  error          String?
+  startedAt      DateTime?
+  completedAt    DateTime?
+  organization   Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  marketplace    Marketplace?         @relation(fields: [marketplaceId], references: [id], onDelete: SetNull)
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  @@index([organizationId, status, createdAt])
+  @@index([marketplaceId, createdAt])
+}
+
+model MarketplaceCache {
+  id             String       @id @default(cuid())
+  organizationId String
+  marketplaceId  String?
+  cacheKey       String
+  value          Json
+  expiresAt      DateTime
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  marketplace    Marketplace? @relation(fields: [marketplaceId], references: [id], onDelete: Cascade)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([organizationId, cacheKey])
+  @@index([expiresAt])
+  @@index([marketplaceId])
+}
+
+model MarketplaceTrend {
+  id             String              @id @default(cuid())
+  organizationId String
+  marketplaceId  String?
+  productId      String?
+  category       String?
+  keyword        String
+  score          Decimal             @default(0) @db.Decimal(8, 2)
+  signal         String?
+  metadata       Json?
+  organization   Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  marketplace    Marketplace?        @relation(fields: [marketplaceId], references: [id], onDelete: SetNull)
+  product        MarketplaceProduct? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  capturedAt     DateTime            @default(now())
+
+  @@index([organizationId, capturedAt])
+  @@index([marketplaceId, capturedAt])
+  @@index([productId])
+  @@index([keyword])
 }
 
 model AuditLog {

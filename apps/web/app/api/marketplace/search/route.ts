@@ -1,105 +1,51 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireCurrentSession } from "@/lib/auth/session";
-import { prisma } from "@/lib/db/prisma";
+import { searchMarketplaceIntelligence } from "@/lib/marketplace/service";
 
 const searchSchema = z.object({
-  query: z.string().trim().min(1).max(160),
-  marketplace: z.string().trim().max(80).optional().nullable(),
+  q: z.string().trim().min(1).max(160),
+  marketplace: z.string().trim().optional(),
+  category: z.string().trim().optional(),
+  seller: z.string().trim().optional(),
+  availability: z.string().trim().optional(),
+  minPrice: z.coerce.number().nonnegative().optional(),
+  maxPrice: z.coerce.number().nonnegative().optional(),
+  sort: z.enum(["newest", "cheapest", "highest-rated", "trending"]).default("newest"),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(60).default(30),
 });
 
-function buildSearchResults({
-  query,
-  marketplace,
-  analyses,
-}: {
-  query: string;
-  marketplace?: string | null;
-  analyses: Array<{
-    id: string;
-    productName: string;
-    marketplace: string | null;
-    recommendation: string;
-    score: number;
-    createdAt: Date;
-  }>;
-}) {
-  return analyses.map((analysis) => ({
-    id: analysis.id,
-    title: analysis.productName,
-    marketplace: analysis.marketplace ?? marketplace ?? "Internal",
-    source: "MAGZ saved analysis",
-    score: analysis.score,
-    recommendation: analysis.recommendation,
-    createdAt: analysis.createdAt.toISOString(),
-    matchedQuery: query,
-  }));
-}
-
-export async function GET() {
+export async function GET(request: Request) {
   const session = await requireCurrentSession();
-
-  const searches = await prisma.marketplaceSearch.findMany({
-    where: { organizationId: session.organizationId },
-    orderBy: { createdAt: "desc" },
-    take: 50,
-  });
-
-  return NextResponse.json({ searches });
-}
-
-export async function POST(request: Request) {
-  const session = await requireCurrentSession();
-  const body = await request.json().catch(() => null);
-  const parsed = searchSchema.safeParse(body);
+  const { searchParams } = new URL(request.url);
+  const parsed = searchSchema.safeParse(Object.fromEntries(searchParams));
 
   if (!parsed.success) {
-    return NextResponse.json(
-      { error: "Invalid marketplace search payload." },
-      { status: 400 },
-    );
+    return NextResponse.json({ error: "Invalid marketplace search query." }, { status: 400 });
   }
 
-  const analyses = await prisma.marketplaceAnalysis.findMany({
-    where: {
-      organizationId: session.organizationId,
-      productName: { contains: parsed.data.query, mode: "insensitive" },
-      ...(parsed.data.marketplace
-        ? { marketplace: parsed.data.marketplace }
-        : {}),
-    },
-    orderBy: [{ score: "desc" }, { createdAt: "desc" }],
-    take: 10,
-  });
-  const results = buildSearchResults({
-    query: parsed.data.query,
-    marketplace: parsed.data.marketplace,
-    analyses,
-  });
+  const marketplaces = parsed.data.marketplace
+    ?.split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
 
-  const search = await prisma.marketplaceSearch.create({
-    data: {
-      organizationId: session.organizationId,
-      query: parsed.data.query,
-      marketplace: parsed.data.marketplace,
-      results,
+  const result = await searchMarketplaceIntelligence({
+    organizationId: session.organizationId,
+    userId: session.userId,
+    query: parsed.data.q,
+    filters: {
+      marketplaces,
+      category: parsed.data.category,
+      seller: parsed.data.seller,
+      availability: parsed.data.availability,
+      minPrice: parsed.data.minPrice,
+      maxPrice: parsed.data.maxPrice,
+      sort: parsed.data.sort,
+      page: parsed.data.page,
+      pageSize: parsed.data.pageSize,
     },
   });
 
-  await prisma.auditLog.create({
-    data: {
-      organizationId: session.organizationId,
-      actorId: session.userId,
-      action: "MARKETPLACE_SEARCH_CREATED",
-      entityType: "marketplace_search",
-      entityId: search.id,
-      metadata: {
-        query: search.query,
-        marketplace: search.marketplace,
-        resultCount: results.length,
-      },
-    },
-  });
-
-  return NextResponse.json({ search, results }, { status: 201 });
+  return NextResponse.json(result);
 }

@@ -6,6 +6,8 @@ export {
   CRMLeadStatus,
   CRMTaskPriority,
   CRMTaskStatus,
+  MarketplaceJobStatus,
+  MarketplaceStatus,
   ModuleKey,
   ModuleStatus,
   PrismaClient,

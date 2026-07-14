@@ -72,11 +72,11 @@ export const moduleDefinitions = [
   {
     key: "MARKETPLACE_ANALYZER",
     slug: "marketplace",
-    name: "Marketplace Analyzer",
-    description: "SKU, pricing, search visibility, and competitor intelligence for regional marketplaces.",
+    name: "Marketplace Intelligence",
+    description: "Live product, price, category, seller, and competitor intelligence for regional marketplaces.",
     path: "/modules/marketplace",
     category: "commerce",
-    status: "COMING_SOON",
+    status: "ACTIVE",
     defaultEnabled: true,
     requiredRole: "USER",
     isolatedPath: "apps/web/modules/marketplace-analyzer"

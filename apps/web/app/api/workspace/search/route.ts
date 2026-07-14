@@ -48,6 +48,8 @@ export async function GET(request: Request) {
     erpInvoices,
     marketplaceSearches,
     marketplaceAnalyses,
+    marketplaceProducts,
+    marketplaceCategories,
   ] = await Promise.all([
     prisma.aIConversation.findMany({
       where: {
@@ -185,6 +187,32 @@ export async function GET(request: Request) {
       orderBy: { createdAt: "desc" },
       take: 5,
     }),
+    prisma.marketplaceProduct.findMany({
+      where: {
+        organizationId: session.organizationId,
+        OR: [
+          { title: contains },
+          { description: contains },
+          { marketplace: { name: contains } },
+          { category: { name: contains } },
+          { seller: { name: contains } },
+        ],
+      },
+      include: {
+        marketplace: { select: { name: true } },
+        category: { select: { name: true } },
+      },
+      orderBy: { lastSeenAt: "desc" },
+      take: 6,
+    }),
+    prisma.marketplaceCategory.findMany({
+      where: {
+        OR: [{ name: contains }, { marketplace: { name: contains } }],
+      },
+      include: { marketplace: { select: { name: true } }, _count: { select: { products: true } } },
+      orderBy: { name: "asc" },
+      take: 5,
+    }),
   ]);
 
   const results = [
@@ -293,7 +321,7 @@ export async function GET(request: Request) {
         type: "Marketplace",
         title: search.query,
         detail: search.marketplace ?? "Marketplace search",
-        href: "/workspace",
+        href: "/modules/marketplace",
       }),
     ),
     ...marketplaceAnalyses.map((analysis) =>
@@ -302,7 +330,25 @@ export async function GET(request: Request) {
         type: "Marketplace",
         title: analysis.productName,
         detail: `Score ${analysis.score} - ${analysis.marketplace ?? "Marketplace"}`,
-        href: "/workspace",
+        href: "/modules/marketplace",
+      }),
+    ),
+    ...marketplaceProducts.map((product) =>
+      result({
+        id: `marketplace-product:${product.id}`,
+        type: "Marketplace",
+        title: product.title,
+        detail: `${product.marketplace.name} - ${product.currentPrice?.toString() ?? "No price"} ${product.currency}`,
+        href: "/modules/marketplace",
+      }),
+    ),
+    ...marketplaceCategories.map((category) =>
+      result({
+        id: `marketplace-category:${category.id}`,
+        type: "Marketplace",
+        title: category.name,
+        detail: `${category.marketplace.name} - ${category._count.products} products`,
+        href: "/modules/marketplace",
       }),
     ),
   ].slice(0, 30);
